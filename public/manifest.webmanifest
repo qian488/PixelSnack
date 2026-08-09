@@ -1,0 +1,10 @@
+{
+  "name": "PixelSnack 赛博拼豆工作室",
+  "short_name": "PixelSnack",
+  "description": "离线可用的拼豆绘图、转图与图纸导出工具",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#e9eae7",
+  "theme_color": "#171c1f",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
