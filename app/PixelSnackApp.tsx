@@ -44,7 +44,7 @@ export default function PixelSnackApp() {
   return <main className="app-shell">
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
     <header className="topbar">
-      <div className="brand-block"><button className="back-button" aria-label="返回作品列表">‹</button><div className="brand-mark" role="img" aria-label="PixelSnack 品牌标志"/><div><div className="brand-name">PIXEL<span>SNACK</span></div><small>PIXEL BEAD ATELIER</small></div></div>
+      <div className="brand-block"><div className="brand-mark" role="img" aria-label="PixelSnack 品牌标志"/><div><div className="brand-name">PIXEL<span>SNACK</span></div><small>PIXEL BEAD ATELIER</small></div></div>
       <div className="project-title"><span>PROJECT /</span><input aria-label="作品名称" value={project.name} onChange={(e) => editor.rename(e.target.value)} /><i className={saved ? "saved" : "saving"}>{saved ? "● 已保存" : "○ 保存中"}</i></div>
       <div className="top-actions">
         <button className="top-icon danger" onClick={() => { if (confirm("清空当前画布？此操作可以撤销。")) editor.clear(); }} aria-label="清空画布">⌫</button>
@@ -60,7 +60,7 @@ export default function PixelSnackApp() {
         <div className="panel-heading"><span className="target">✥</span><div><b>导航器</b><small>NAVIGATOR</small></div><span className="live-dot">LIVE</span></div>
         <MiniMap />
         <div className="zoom-readout"><strong>{Math.round(zoom / 16 * 100)}%</strong><span>{project.width} × {project.height}</span></div>
-        <input className="vertical-range" aria-label="缩放比例" type="range" min="10" max="400" value={Math.min(400, Math.max(10, Math.round(zoom / 16 * 100)))} readOnly />
+        <input className="vertical-range" aria-label="画布缩放比例" type="range" min="10" max="400" value={Math.min(400, Math.max(10, Math.round(zoom / 16 * 100)))} onChange={(e) => window.dispatchEvent(new CustomEvent("pixelsnack:setzoom", { detail: +e.target.value / 100 * 16 }))} />
         <div className="navigator-actions"><button onClick={() => window.dispatchEvent(new Event("pixelsnack:fit"))}>适应</button><button onClick={() => window.dispatchEvent(new Event("pixelsnack:100"))}>100%</button></div>
         <div className="panel-foot"><i/> OFFLINE READY</div>
       </aside>
@@ -76,7 +76,7 @@ export default function PixelSnackApp() {
       </section>
 
       <aside className="right-panel panel">
-        <div className="right-tabs"><button className="active">色板</button><button onClick={() => setConvertOpen(true)}>图片转拼豆</button><button onClick={() => filePalette.current?.click()}>导入色板</button></div>
+        <div className="right-tabs"><button className="active">色板</button><button onClick={() => filePalette.current?.click()}>导入色板</button></div>
         <input ref={filePalette} hidden type="file" accept=".csv,.json" onChange={(e) => handlePalette(e.target.files?.[0])}/>
         <div className="current-color"><span style={{ background: project.palette.find((c) => c.index === editor.color)?.hex }}/><div><small>CURRENT COLOR</small><b>{project.palette.find((c) => c.index === editor.color)?.code}</b></div><em>{usage.get(editor.color) || 0} PCS</em></div>
         <div className="color-search"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索色号 / 名称" /></div>

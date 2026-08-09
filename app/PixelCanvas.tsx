@@ -31,7 +31,15 @@ export function PixelCanvas({ onZoom }: { onZoom?: (value: number) => void }) {
   useEffect(() => { fit(); }, [fit]);
   useEffect(() => {
     const handleFit = () => fit(); const handle100 = () => { const rect = wrap.current?.getBoundingClientRect(); if (!rect) return; view.current = { scale: 16, x: (rect.width - project.width * 16) / 2, y: (rect.height - project.height * 16) / 2 }; onZoom?.(16); setViewRevision((n) => n + 1); };
-    window.addEventListener("pixelsnack:fit", handleFit); window.addEventListener("pixelsnack:100", handle100); return () => { window.removeEventListener("pixelsnack:fit", handleFit); window.removeEventListener("pixelsnack:100", handle100); };
+    const handleSetZoom = (event: Event) => {
+      const rect = wrap.current?.getBoundingClientRect(); if (!rect) return;
+      const before = view.current; const scale = Math.max(.1, Math.min(64, (event as CustomEvent<number>).detail));
+      const worldX = (rect.width / 2 - before.x) / before.scale, worldY = (rect.height / 2 - before.y) / before.scale;
+      view.current = { scale, x: rect.width / 2 - worldX * scale, y: rect.height / 2 - worldY * scale };
+      onZoom?.(scale); setViewRevision((n) => n + 1);
+    };
+    window.addEventListener("pixelsnack:fit", handleFit); window.addEventListener("pixelsnack:100", handle100); window.addEventListener("pixelsnack:setzoom", handleSetZoom);
+    return () => { window.removeEventListener("pixelsnack:fit", handleFit); window.removeEventListener("pixelsnack:100", handle100); window.removeEventListener("pixelsnack:setzoom", handleSetZoom); };
   }, [fit, onZoom, project.width, project.height]);
 
   useEffect(() => {
@@ -40,6 +48,11 @@ export function PixelCanvas({ onZoom }: { onZoom?: (value: number) => void }) {
     const b = setup(bg.current!); const a = setup(art.current!); setup(ui.current!);
     b.save(); b.translate(v.x, v.y); b.fillStyle = "#f8f6ef"; b.shadowColor = "rgba(9,13,18,.35)"; b.shadowBlur = 22; b.fillRect(0, 0, project.width * v.scale, project.height * v.scale); b.restore();
     a.save(); a.translate(v.x, v.y); a.imageSmoothingEnabled = false;
+    if (project.guideCells) {
+      a.globalAlpha = .22;
+      project.guideCells.forEach((value, i) => { if (!value || project.cells[i]) return; a.fillStyle = palette.get(value) || "#ff00ff"; a.fillRect((i % project.width) * v.scale, Math.floor(i / project.width) * v.scale, Math.ceil(v.scale), Math.ceil(v.scale)); });
+      a.globalAlpha = 1;
+    }
     project.cells.forEach((value, i) => { if (!value) return; a.fillStyle = palette.get(value) || "#ff00ff"; a.fillRect((i % project.width) * v.scale, Math.floor(i / project.width) * v.scale, Math.ceil(v.scale), Math.ceil(v.scale)); });
     a.restore();
     b.save(); b.translate(v.x, v.y);
@@ -69,7 +82,7 @@ export function PixelCanvas({ onZoom }: { onZoom?: (value: number) => void }) {
     const p = point(e); pointers.current.set(e.pointerId, p); ui.current!.setPointerCapture(e.pointerId);
     if (pointers.current.size === 2) { stroke.current = null; const ps = [...pointers.current.values()]; const midX = (ps[0].x + ps[1].x) / 2, midY = (ps[0].y + ps[1].y) / 2; gesture.current = { distance: Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y), scale: view.current.scale, x: view.current.x, y: view.current.y, midX, midY }; return; }
     const cell = cellAt(p); if (!cell) return;
-    if (tool === "eyedropper") { const value = project.cells[cell[1] * project.width + cell[0]]; if (value) setColor(value); return; }
+    if (tool === "eyedropper") { const index = cell[1] * project.width + cell[0]; const value = project.cells[index] || project.guideCells?.[index]; if (value) setColor(value); return; }
     if (tool === "fill") { fill(cell[1] * project.width + cell[0]); return; }
     if (tool === "pan" || e.button === 1 || e.button === 2) { pan.current = { x: p.x, y: p.y, vx: view.current.x, vy: view.current.y }; return; }
     stroke.current = { last: cell, changes: new Map() }; addCells(cell, cell); previewStroke();
@@ -93,6 +106,6 @@ export function PixelCanvas({ onZoom }: { onZoom?: (value: number) => void }) {
 
 export function MiniMap() {
   const ref = useRef<HTMLCanvasElement>(null); const { project, revision } = useEditor();
-  useEffect(() => { const c = ref.current!; const dpr = devicePixelRatio || 1; const size = 152; c.width = size * dpr; c.height = size * dpr; const ctx = c.getContext("2d")!; ctx.scale(dpr, dpr); ctx.fillStyle = "#f2efe7"; ctx.fillRect(0, 0, size, size); const scale = Math.min(size / project.width, size / project.height); const ox = (size - project.width * scale) / 2, oy = (size - project.height * scale) / 2; const p = new Map(project.palette.map((x) => [x.index, x.hex])); project.cells.forEach((v, i) => { if (!v) return; ctx.fillStyle = p.get(v)!; ctx.fillRect(ox + (i % project.width) * scale, oy + Math.floor(i / project.width) * scale, Math.ceil(scale), Math.ceil(scale)); }); ctx.strokeStyle = "#70f6f4"; ctx.lineWidth = 3; ctx.strokeRect(1.5, 1.5, size - 3, size - 3); }, [project, revision]);
+  useEffect(() => { const c = ref.current!; const dpr = devicePixelRatio || 1; const size = 152; c.width = size * dpr; c.height = size * dpr; const ctx = c.getContext("2d")!; ctx.scale(dpr, dpr); ctx.fillStyle = "#f2efe7"; ctx.fillRect(0, 0, size, size); const scale = Math.min(size / project.width, size / project.height); const ox = (size - project.width * scale) / 2, oy = (size - project.height * scale) / 2; const p = new Map(project.palette.map((x) => [x.index, x.hex])); if (project.guideCells) { ctx.globalAlpha = .25; project.guideCells.forEach((v, i) => { if (!v || project.cells[i]) return; ctx.fillStyle = p.get(v)!; ctx.fillRect(ox + (i % project.width) * scale, oy + Math.floor(i / project.width) * scale, Math.ceil(scale), Math.ceil(scale)); }); ctx.globalAlpha = 1; } project.cells.forEach((v, i) => { if (!v) return; ctx.fillStyle = p.get(v)!; ctx.fillRect(ox + (i % project.width) * scale, oy + Math.floor(i / project.width) * scale, Math.ceil(scale), Math.ceil(scale)); }); ctx.strokeStyle = "#70f6f4"; ctx.lineWidth = 3; ctx.strokeRect(1.5, 1.5, size - 3, size - 3); }, [project, revision]);
   return <canvas className="minimap" ref={ref} aria-label="作品导航缩略图" />;
 }

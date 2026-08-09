@@ -44,3 +44,22 @@ html,body{background:#f4f7fb;color:var(--ink)}
 
 @media(max-width:1100px){.image-convert-button b{display:none}.image-convert-button{width:44px;padding:0;justify-content:center}.workspace{padding-top:34px}}
 @media(max-width:760px){.topbar{height:64px;background:rgba(255,255,255,.9)}.image-convert-button{display:none}.workspace{height:calc(100dvh - 64px)}.mobile-nav{background:rgba(255,255,255,.96);border-top-color:#e4e8ef;box-shadow:0 -8px 25px rgba(82,98,127,.1)}.mobile-nav button{color:#7e8998}.mobile-nav small{color:#9aa4b1}.mobile-sheet{color:#596678;background:#fff;border-color:#e4e8ef;box-shadow:0 -10px 28px rgba(79,95,123,.15)}.crop-layout{grid-template-columns:1fr}.crop-modal{max-height:94dvh}.crop-stage{min-height:360px;border-right:0;border-bottom:1px solid #edf0f5}.image-dropzone{min-height:310px}.crop-settings{overflow:visible}.crop-modal footer>span{display:none}.crop-modal footer{justify-content:flex-end}}
+
+/* Readability and controls: light surfaces use dark copy, dark surfaces use light copy. */
+:root{--ink:#334155;--muted:#64748b}
+.app-shell,.topbar,.panel,.modal,.mobile-sheet{color:#334155}
+.brand-block small,.project-title span,.panel-heading small,.panel-foot,.zoom-readout span,.stage-topline,.stage-status,.right-tabs button,.current-color small,.color-search span,.palette-meta,.material-summary small,.crop-modal header p,.image-dropzone small,.crop-file-row small,.conversion-result>div small,.setting-title small,.crop-settings label,.pastel-switch span small,.crop-modal footer>span{color:#64748b}
+.project-title input,.color-search input,.crop-settings input[type=number],.new-form input,.new-form select,.convert-form input,.convert-form select{color:#334155}
+.right-tabs{grid-template-columns:1fr 1fr}
+.right-tabs button{font-weight:700}.right-tabs button.active{color:#387f86}
+.current-color em,.palette-meta small,.brush-control b,.range-label b{color:#397f86}
+.image-dropzone,.crop-stage,.crop-settings,.crop-modal footer,.current-color,.color-search,.material-summary{color:#334155}
+.form-error{color:#9f3f64;background:#fff0f6}
+.modal .primary{color:#334155}.modal .ghost{color:#475569}
+.vertical-range{-webkit-appearance:none;appearance:none;height:18px;background:transparent;cursor:pointer;accent-color:#68bfc1}
+.vertical-range::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:#dbe4ec;box-shadow:inset 0 1px 2px rgba(79,96,121,.12)}
+.vertical-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;margin-top:-6px;border:3px solid #fff;border-radius:50%;background:#68bfc1;box-shadow:0 2px 8px rgba(69,130,135,.35)}
+.vertical-range::-moz-range-track{height:6px;border-radius:999px;background:#dbe4ec}
+.vertical-range::-moz-range-progress{height:6px;border-radius:999px;background:#8cd4d1}
+.vertical-range::-moz-range-thumb{width:13px;height:13px;border:3px solid #fff;border-radius:50%;background:#68bfc1;box-shadow:0 2px 8px rgba(69,130,135,.35)}
+.algorithm-select{display:flex;flex-direction:column;gap:6px;margin:-5px 0 19px;color:#64748b;font-size:9px}.algorithm-select select{padding:10px;border:1px solid #e4e8ef;border-radius:10px;color:#334155;background:#fafbfe;outline:0}.algorithm-select small{line-height:1.5;color:#64748b}.output-segment button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left}.output-segment button b{font-size:9px}.output-segment button small{font-size:7px;color:#64748b}.output-segment button.active small{color:#765f73}

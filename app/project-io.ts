@@ -4,17 +4,18 @@ import JSZip from "jszip";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { PixelProject } from "./editor-core";
 
-type StoredProject = Omit<PixelProject, "cells"> & { cells: ArrayBuffer };
+type StoredProject = Omit<PixelProject, "cells" | "guideCells"> & { cells: ArrayBuffer; guideCells?: ArrayBuffer };
 const db = new Dexie("pixelsnack") as Dexie & { projects: EntityTable<StoredProject, "id"> };
 db.version(1).stores({ projects: "id,updatedAt" });
 
 function stored(project: PixelProject): StoredProject {
   const cells = project.cells.slice().buffer;
-  return { ...project, cells };
+  const guideCells = project.guideCells?.slice().buffer;
+  return { ...project, cells, guideCells };
 }
 
 function restored(project: StoredProject): PixelProject {
-  return { ...project, cells: new Uint16Array(project.cells) };
+  return { ...project, cells: new Uint16Array(project.cells), guideCells: project.guideCells ? new Uint16Array(project.guideCells) : undefined };
 }
 
 export async function saveLocal(project: PixelProject) { await db.projects.put(stored(project)); }
@@ -52,9 +53,10 @@ export async function exportPng(project: PixelProject, scale = 12, grid = false,
 
 export async function exportProject(project: PixelProject) {
   const zip = new JSZip();
-  const manifest: Omit<PixelProject, "cells"> = { schemaVersion: project.schemaVersion, id: project.id, name: project.name, width: project.width, height: project.height, palette: project.palette, board: project.board, createdAt: project.createdAt, updatedAt: project.updatedAt };
+  const manifest = { schemaVersion: project.schemaVersion, id: project.id, name: project.name, width: project.width, height: project.height, palette: project.palette, board: project.board, createdAt: project.createdAt, updatedAt: project.updatedAt, hasGuide: Boolean(project.guideCells) };
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   zip.file("cells.bin", project.cells.slice().buffer);
+  if (project.guideCells) zip.file("guide.bin", project.guideCells.slice().buffer);
   const preview = await new Promise<Blob>((resolve) => renderProject(project, 4).toBlob((b) => resolve(b!), "image/png"));
   zip.file("preview.png", preview);
   download(await zip.generateAsync({ type: "blob" }), `${safeName(project.name)}.pixelsnack`);
@@ -67,7 +69,12 @@ export async function importProject(file: File): Promise<PixelProject> {
   if (manifest.schemaVersion !== 1 || manifest.width < 1 || manifest.height < 1 || manifest.width > 256 || manifest.height > 256) throw new Error("不支持的工程版本或尺寸");
   const data = await cellsFile.async("arraybuffer");
   if (data.byteLength !== manifest.width * manifest.height * 2) throw new Error("画布数据长度不正确");
-  return { ...manifest, cells: new Uint16Array(data), id: crypto.randomUUID(), updatedAt: new Date().toISOString() };
+  const guideFile = zip.file("guide.bin");
+  const guideData = guideFile ? await guideFile.async("arraybuffer") : undefined;
+  if (guideData && guideData.byteLength !== manifest.width * manifest.height * 2) throw new Error("参考底图数据长度不正确");
+  const { hasGuide: _hasGuide, ...projectManifest } = manifest;
+  void _hasGuide;
+  return { ...projectManifest, cells: new Uint16Array(data), guideCells: guideData ? new Uint16Array(guideData) : undefined, id: crypto.randomUUID(), updatedAt: new Date().toISOString() };
 }
 
 export async function exportPdf(project: PixelProject) {

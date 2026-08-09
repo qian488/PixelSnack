@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProject, floodFill, lineCells, parsePalette } from "../app/editor-core";
+import { createProject, fillGuideRegion, floodFill, lineCells, parsePalette } from "../app/editor-core";
 
 describe("grid algorithms", () => {
   it("interpolates every cell in a fast diagonal stroke", () => {
@@ -18,6 +18,14 @@ describe("grid algorithms", () => {
     expect(project.cells).toBeInstanceOf(Uint16Array);
     expect(project.cells.length).toBe(65536);
     expect(project.schemaVersion).toBe(1);
+  });
+
+  it("fills only one connected guide-color region", () => {
+    const project = createProject(3, 3, "guide");
+    project.guideCells = new Uint16Array([1, 1, 2, 1, 2, 2, 0, 2, 1]);
+    const changes = fillGuideRegion(project, 0, 4);
+    expect(changes.map((change) => change.index).sort((a, b) => a - b)).toEqual([0, 1, 3]);
+    expect(changes.every((change) => change.before === 0 && change.after === 4)).toBe(true);
   });
 });
 

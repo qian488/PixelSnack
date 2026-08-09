@@ -17,6 +17,8 @@ export type PixelProject = {
   width: number;
   height: number;
   cells: Uint16Array;
+  /** Optional, non-exported tracing template shown beneath the editable cells. */
+  guideCells?: Uint16Array;
   palette: PaletteColor[];
   board: { width: number; height: number };
   createdAt: string;
@@ -103,6 +105,21 @@ export function floodFill(cells: Uint16Array, width: number, height: number, sta
     const x = i % width, y = Math.floor(i / width);
     const neighbors = [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, y > 0 ? i - width : -1, y < height - 1 ? i + width : -1];
     for (const n of neighbors) if (n >= 0 && !seen[n]) { seen[n] = 1; queue.push(n); }
+  }
+  return changes;
+}
+
+export function fillGuideRegion(project: PixelProject, start: number, value: number) {
+  const guide = project.guideCells;
+  if (!guide || project.cells[start] || !guide[start]) return [] as CellChange[];
+  const target = guide[start], changes: CellChange[] = [], queue = [start], seen = new Uint8Array(guide.length); seen[start] = 1;
+  while (queue.length) {
+    const i = queue.pop()!;
+    if (guide[i] !== target || project.cells[i]) continue;
+    changes.push({ index: i, before: 0, after: value });
+    const x = i % project.width, y = Math.floor(i / project.width);
+    const neighbors = [x > 0 ? i - 1 : -1, x < project.width - 1 ? i + 1 : -1, y > 0 ? i - project.width : -1, y < project.height - 1 ? i + project.width : -1];
+    for (const neighbor of neighbors) if (neighbor >= 0 && !seen[neighbor]) { seen[neighbor] = 1; queue.push(neighbor); }
   }
   return changes;
 }

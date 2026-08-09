@@ -2,9 +2,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createProject } from "./editor-core";
 import { useEditor } from "./editor-store";
+import { convertPixels } from "./image-convert-core";
 
 type Crop = { x: number; y: number };
 type FitMode = "cover" | "contain";
+type ResizeMode = "nearest" | "smooth" | "high";
+type OutputMode = "guide" | "filled";
 
 export function cropRect(iw: number, ih: number, ratio: number, zoom: number, crop: Crop) {
   const sourceRatio = iw / ih;
@@ -16,8 +19,17 @@ export function cropRect(iw: number, ih: number, ratio: number, zoom: number, cr
   return { sx, sy, sw, sh };
 }
 
-function drawSource(ctx: CanvasRenderingContext2D, img: HTMLImageElement, width: number, height: number, mode: FitMode, zoom: number, crop: Crop) {
+function drawSource(ctx: CanvasRenderingContext2D, img: HTMLImageElement, width: number, height: number, mode: FitMode, zoom: number, crop: Crop, resizeMode: ResizeMode = "high") {
   ctx.clearRect(0, 0, width, height);
+  if (resizeMode === "high" && width <= 512 && height <= 512) {
+    const intermediate = document.createElement("canvas"); intermediate.width = width * 2; intermediate.height = height * 2;
+    drawSource(intermediate.getContext("2d")!, img, intermediate.width, intermediate.height, mode, zoom, crop, "smooth");
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(intermediate, 0, 0, width, height);
+    return;
+  }
+  ctx.imageSmoothingEnabled = resizeMode !== "nearest";
+  ctx.imageSmoothingQuality = resizeMode === "high" ? "high" : "low";
   if (mode === "cover") {
     const r = cropRect(img.naturalWidth, img.naturalHeight, width / height, zoom, crop);
     ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, width, height);
@@ -33,8 +45,9 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
   const [file, setFile] = useState<File | null>(null); const [sourceUrl, setSourceUrl] = useState(""); const [sourceVersion, setSourceVersion] = useState(0); const [sourceSize, setSourceSize] = useState({ width: 0, height: 0 });
   const [width, setWidth] = useState(48); const [height, setHeight] = useState(48); const [maxColors, setMaxColors] = useState(18);
   const [dither, setDither] = useState(false); const [fitMode, setFitMode] = useState<FitMode>("cover"); const [zoom, setZoom] = useState(1); const [crop, setCrop] = useState<Crop>({ x: 0, y: 0 });
+  const [resizeMode, setResizeMode] = useState<ResizeMode>("high"); const [outputMode, setOutputMode] = useState<OutputMode>("guide");
   const [busy, setBusy] = useState(false); const [result, setResult] = useState<Uint16Array | null>(null); const [error, setError] = useState("");
-  const sourceImage = useRef<HTMLImageElement | null>(null); const cropCanvas = useRef<HTMLCanvasElement>(null); const resultCanvas = useRef<HTMLCanvasElement>(null); const worker = useRef<Worker | null>(null);
+  const sourceImage = useRef<HTMLImageElement | null>(null); const cropCanvas = useRef<HTMLCanvasElement>(null); const resultCanvas = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ px: number; py: number; crop: Crop } | null>(null); const fileInput = useRef<HTMLInputElement>(null);
 
   const previewSize = useMemo(() => {
@@ -45,19 +58,20 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
   const paintCrop = useCallback(() => {
     const canvas = cropCanvas.current, img = sourceImage.current; if (!canvas || !img) return;
     canvas.width = previewSize.w; canvas.height = previewSize.h;
-    const ctx = canvas.getContext("2d")!; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-    drawSource(ctx, img, canvas.width, canvas.height, fitMode, zoom, crop);
-  }, [previewSize, fitMode, zoom, crop]);
+    const ctx = canvas.getContext("2d")!;
+    drawSource(ctx, img, canvas.width, canvas.height, fitMode, zoom, crop, resizeMode);
+  }, [previewSize, fitMode, zoom, crop, resizeMode]);
 
   useEffect(() => { paintCrop(); }, [paintCrop, sourceVersion]);
-  useEffect(() => () => worker.current?.terminate(), []);
   useEffect(() => () => { if (sourceUrl) URL.revokeObjectURL(sourceUrl); }, [sourceUrl]);
   useEffect(() => {
     if (!result || !resultCanvas.current) return;
     const c = resultCanvas.current; const scale = Math.max(2, Math.min(10, Math.floor(360 / Math.max(width, height)))); c.width = width * scale; c.height = height * scale;
     const ctx = c.getContext("2d")!; ctx.fillStyle = "#fffaf7"; ctx.fillRect(0, 0, c.width, c.height); const colors = new Map(palette.map((x) => [x.index, x.hex]));
+    ctx.globalAlpha = outputMode === "guide" ? .3 : 1;
     result.forEach((v, i) => { if (!v) return; ctx.fillStyle = colors.get(v)!; ctx.fillRect((i % width) * scale, Math.floor(i / width) * scale, scale, scale); });
-  }, [result, width, height, palette]);
+    ctx.globalAlpha = 1;
+  }, [result, width, height, palette, outputMode]);
 
   if (!open) return null;
 
@@ -72,16 +86,16 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
   const convert = async () => {
     const img = sourceImage.current; if (!file || !img) return; setBusy(true); setResult(null); setError("");
     try {
-      const c = document.createElement("canvas"); c.width = width; c.height = height; const ctx = c.getContext("2d")!; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-      drawSource(ctx, img, width, height, fitMode, zoom, crop);
-      const image = ctx.getImageData(0, 0, width, height); worker.current?.terminate();
-      const w = new Worker(new URL("./image-worker.ts", import.meta.url), { type: "module" }); worker.current = w;
-      const cells = await new Promise<Uint16Array>((resolve, reject) => { w.onmessage = (e) => resolve(new Uint16Array(e.data.cells)); w.onerror = () => reject(new Error("转换线程失败")); w.postMessage({ pixels: image.data, width, height, palette: palette.map(({ index, rgb }) => ({ index, rgb })), dither, maxColors }, [image.data.buffer]); });
+      const c = document.createElement("canvas"); c.width = width; c.height = height; const ctx = c.getContext("2d")!;
+      drawSource(ctx, img, width, height, fitMode, zoom, crop, resizeMode);
+      const image = ctx.getImageData(0, 0, width, height);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const cells = convertPixels({ pixels: image.data, width, height, palette: palette.map(({ index, rgb }) => ({ index, rgb })), dither, maxColors });
       setResult(cells);
     } catch (e) { setError(e instanceof Error ? e.message : "图片转换失败"); } finally { setBusy(false); }
   };
 
-  const confirm = () => { if (!result) return; const p = createProject(width, height, file?.name.replace(/\.[^.]+$/, "") || "图片拼豆"); p.cells = result; p.palette = palette.map((c) => ({ ...c })); replace(p); onClose(); };
+  const confirm = () => { if (!result) return; const p = createProject(width, height, file?.name.replace(/\.[^.]+$/, "") || "图片拼豆"); if (outputMode === "guide") p.guideCells = result.slice(); else p.cells = result.slice(); p.palette = palette.map((c) => ({ ...c })); replace(p); onClose(); };
   const pointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => { if (fitMode !== "cover") return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { px: e.clientX, py: e.clientY, crop }; };
   const pointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => { if (!drag.current) return; const rect = e.currentTarget.getBoundingClientRect(); setCrop({ x: Math.max(-1, Math.min(1, drag.current.crop.x - (e.clientX - drag.current.px) / rect.width * 2)), y: Math.max(-1, Math.min(1, drag.current.crop.y - (e.clientY - drag.current.py) / rect.height * 2)) }); };
   const pointerUp = () => { drag.current = null; };
@@ -98,7 +112,7 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
             <div className="crop-file-row"><span><b>{file?.name}</b><small>{sourceSize.width} × {sourceSize.height}</small></span><button onClick={() => fileInput.current?.click()}>更换图片</button></div>
           </>}
           <input ref={fileInput} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => chooseFile(e.target.files?.[0])}/>
-          {result && <div className="conversion-result"><div><span>转换预览</span><small>{width} × {height} · {new Set(result).size} 种颜色</small></div><canvas ref={resultCanvas}/></div>}
+          {result && <div className="conversion-result"><div><span>{outputMode === "guide" ? "浅色参考底图预览" : "完整像素图预览"}</span><small>{width} × {height} · {new Set(result).size} 种颜色</small></div><canvas ref={resultCanvas}/></div>}
         </div>
         <div className="crop-settings">
           <div className="setting-title"><span>01</span><div><b>画布尺寸</b><small>最多支持 256 × 256</small></div></div>
@@ -106,14 +120,17 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
           <div className="setting-title"><span>02</span><div><b>裁切方式</b><small>裁切模式支持拖动和缩放</small></div></div>
           <div className="soft-segment"><button className={fitMode === "cover" ? "active" : ""} onClick={() => { setFitMode("cover"); setResult(null); }}>裁切填满</button><button className={fitMode === "contain" ? "active" : ""} onClick={() => { setFitMode("contain"); setResult(null); }}>完整保留</button></div>
           <label className={fitMode === "contain" ? "range-label disabled" : "range-label"}><span>图片缩放 <b>{zoom.toFixed(1)}×</b></span><input disabled={fitMode === "contain"} type="range" min="1" max="4" step="0.1" value={zoom} onChange={(e) => { setZoom(+e.target.value); setResult(null); }}/></label>
+          <label className="algorithm-select">缩放算法<select value={resizeMode} onChange={(e) => { setResizeMode(e.target.value as ResizeMode); setResult(null); }}><option value="nearest">最近邻（像素画 / 图标）</option><option value="smooth">平滑缩放（普通插画）</option><option value="high">高质量平滑（照片，推荐）</option></select><small>算法会影响缩小后的边缘与细节，再进行 OKLab 色板匹配。</small></label>
           <div className="setting-title"><span>03</span><div><b>颜色处理</b><small>匹配当前拼豆色板</small></div></div>
           <label className="range-label"><span>最大颜色数 <b>{maxColors}</b></span><input type="range" min="4" max={palette.length} value={maxColors} onChange={(e) => { setMaxColors(+e.target.value); setResult(null); }}/></label>
           <label className="pastel-switch"><span><b>柔化渐变（抖动）</b><small>照片建议开启，插画建议关闭</small></span><input aria-label="柔化渐变" type="checkbox" checked={dither} onChange={(e) => { setDither(e.target.checked); setResult(null); }}/></label>
+          <div className="setting-title"><span>04</span><div><b>创建方式</b><small>先体验拼豆，或直接获得像素图</small></div></div>
+          <div className="soft-segment output-segment"><button className={outputMode === "guide" ? "active" : ""} onClick={() => setOutputMode("guide")}><b>互动描摹</b><small>浅色底图，自己填豆</small></button><button className={outputMode === "filled" ? "active" : ""} onClick={() => setOutputMode("filled")}><b>直接生成</b><small>获得完整像素图</small></button></div>
           {error && <p className="form-error">{error}</p>}
           <button className="primary wide convert-action" disabled={!file || busy} onClick={convert}>{busy ? "正在生成拼豆预览…" : result ? "重新生成预览" : "生成拼豆预览"}</button>
         </div>
       </div>
-      <footer><span>你的原作品不会被覆盖</span><div><button className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={!result} onClick={confirm}>创建为新作品</button></div></footer>
+      <footer><span>{outputMode === "guide" ? "参考图会淡化显示在可编辑画布底部" : "你的原作品不会被覆盖"}</span><div><button className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={!result} onClick={confirm}>{outputMode === "guide" ? "开始拼豆" : "创建像素图"}</button></div></footer>
     </section>
   </div>;
 }

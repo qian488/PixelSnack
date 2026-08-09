@@ -1,6 +1,6 @@
 "use client";
 import { create } from "zustand";
-import { CellChange, EditorTool, PixelProject, createDemoProject, floodFill } from "./editor-core";
+import { CellChange, EditorTool, PixelProject, createDemoProject, fillGuideRegion, floodFill } from "./editor-core";
 
 type HistoryEntry = { label: string; changes: CellChange[] };
 type EditorState = {
@@ -29,7 +29,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     return { project: { ...s.project, cells, updatedAt: new Date().toISOString() }, revision: s.revision + 1,
       undoStack: [...s.undoStack, { label, changes: valid }].slice(-200), redoStack: [] };
   }),
-  fill: (index) => { const s = get(); s.apply(floodFill(s.project.cells, s.project.width, s.project.height, index, s.tool === "eraser" ? 0 : s.color), "填充"); },
+  fill: (index) => { const s = get(); const value = s.tool === "eraser" ? 0 : s.color; const changes = value && !s.project.cells[index] && s.project.guideCells?.[index] ? fillGuideRegion(s.project, index, value) : floodFill(s.project.cells, s.project.width, s.project.height, index, value); s.apply(changes, "填充"); },
   undo: () => set((s) => {
     const entry = s.undoStack.at(-1); if (!entry) return s;
     const cells = s.project.cells.slice(); entry.changes.forEach((c) => { cells[c.index] = c.before; });
