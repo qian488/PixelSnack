@@ -1,7 +1,7 @@
 {
-  "name": "PixelSnack 赛博拼豆工作室",
+  "name": "PixelSnack 二次元拼豆工作室",
   "short_name": "PixelSnack",
-  "description": "离线可用的拼豆绘图、转图与图纸导出工具",
+  "description": "柔和好用的拼豆绘图、图片裁切转图与图纸导出工具",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#e9eae7",

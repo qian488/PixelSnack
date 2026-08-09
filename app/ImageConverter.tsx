@@ -1,50 +1,119 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createProject } from "./editor-core";
 import { useEditor } from "./editor-store";
 
+type Crop = { x: number; y: number };
+type FitMode = "cover" | "contain";
+
+export function cropRect(iw: number, ih: number, ratio: number, zoom: number, crop: Crop) {
+  const sourceRatio = iw / ih;
+  const baseW = sourceRatio > ratio ? ih * ratio : iw;
+  const baseH = sourceRatio > ratio ? ih : iw / ratio;
+  const sw = baseW / zoom, sh = baseH / zoom;
+  const sx = Math.max(0, Math.min(iw - sw, (iw - sw) * (crop.x + 1) / 2));
+  const sy = Math.max(0, Math.min(ih - sh, (ih - sh) * (crop.y + 1) / 2));
+  return { sx, sy, sw, sh };
+}
+
+function drawSource(ctx: CanvasRenderingContext2D, img: HTMLImageElement, width: number, height: number, mode: FitMode, zoom: number, crop: Crop) {
+  ctx.clearRect(0, 0, width, height);
+  if (mode === "cover") {
+    const r = cropRect(img.naturalWidth, img.naturalHeight, width / height, zoom, crop);
+    ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, width, height);
+  } else {
+    const scale = Math.min(width / img.naturalWidth, height / img.naturalHeight);
+    const dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+    ctx.drawImage(img, (width - dw) / 2, (height - dh) / 2, dw, dh);
+  }
+}
+
 export function ImageConverter({ open, onClose }: { open: boolean; onClose: () => void }) {
   const palette = useEditor((s) => s.project.palette); const replace = useEditor((s) => s.replaceProject);
-  const [file, setFile] = useState<File | null>(null); const [width, setWidth] = useState(48); const [height, setHeight] = useState(48);
-  const [maxColors, setMaxColors] = useState(24); const [dither, setDither] = useState(false); const [fitMode, setFitMode] = useState<"cover" | "contain">("cover"); const [busy, setBusy] = useState(false); const [result, setResult] = useState<Uint16Array | null>(null);
-  const preview = useRef<HTMLCanvasElement>(null); const worker = useRef<Worker | null>(null);
+  const [file, setFile] = useState<File | null>(null); const [sourceUrl, setSourceUrl] = useState(""); const [sourceVersion, setSourceVersion] = useState(0); const [sourceSize, setSourceSize] = useState({ width: 0, height: 0 });
+  const [width, setWidth] = useState(48); const [height, setHeight] = useState(48); const [maxColors, setMaxColors] = useState(18);
+  const [dither, setDither] = useState(false); const [fitMode, setFitMode] = useState<FitMode>("cover"); const [zoom, setZoom] = useState(1); const [crop, setCrop] = useState<Crop>({ x: 0, y: 0 });
+  const [busy, setBusy] = useState(false); const [result, setResult] = useState<Uint16Array | null>(null); const [error, setError] = useState("");
+  const sourceImage = useRef<HTMLImageElement | null>(null); const cropCanvas = useRef<HTMLCanvasElement>(null); const resultCanvas = useRef<HTMLCanvasElement>(null); const worker = useRef<Worker | null>(null);
+  const drag = useRef<{ px: number; py: number; crop: Crop } | null>(null); const fileInput = useRef<HTMLInputElement>(null);
+
+  const previewSize = useMemo(() => {
+    const max = 680, ratio = width / height;
+    return ratio >= 1 ? { w: max, h: Math.max(80, Math.round(max / ratio)) } : { w: Math.max(80, Math.round(max * ratio)), h: max };
+  }, [width, height]);
+
+  const paintCrop = useCallback(() => {
+    const canvas = cropCanvas.current, img = sourceImage.current; if (!canvas || !img) return;
+    canvas.width = previewSize.w; canvas.height = previewSize.h;
+    const ctx = canvas.getContext("2d")!; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    drawSource(ctx, img, canvas.width, canvas.height, fitMode, zoom, crop);
+  }, [previewSize, fitMode, zoom, crop]);
+
+  useEffect(() => { paintCrop(); }, [paintCrop, sourceVersion]);
   useEffect(() => () => worker.current?.terminate(), []);
+  useEffect(() => () => { if (sourceUrl) URL.revokeObjectURL(sourceUrl); }, [sourceUrl]);
   useEffect(() => {
-    if (!result || !preview.current) return; const c = preview.current; const scale = Math.max(2, Math.floor(280 / Math.max(width, height))); c.width = width * scale; c.height = height * scale; const ctx = c.getContext("2d")!; ctx.fillStyle = "#f5f1e8"; ctx.fillRect(0, 0, c.width, c.height); const colors = new Map(palette.map((x) => [x.index, x.hex])); result.forEach((v, i) => { if (!v) return; ctx.fillStyle = colors.get(v)!; ctx.fillRect((i % width) * scale, Math.floor(i / width) * scale, scale, scale); });
+    if (!result || !resultCanvas.current) return;
+    const c = resultCanvas.current; const scale = Math.max(2, Math.min(10, Math.floor(360 / Math.max(width, height)))); c.width = width * scale; c.height = height * scale;
+    const ctx = c.getContext("2d")!; ctx.fillStyle = "#fffaf7"; ctx.fillRect(0, 0, c.width, c.height); const colors = new Map(palette.map((x) => [x.index, x.hex]));
+    result.forEach((v, i) => { if (!v) return; ctx.fillStyle = colors.get(v)!; ctx.fillRect((i % width) * scale, Math.floor(i / width) * scale, scale, scale); });
   }, [result, width, height, palette]);
+
   if (!open) return null;
+
+  const chooseFile = (next?: File) => {
+    if (!next) return; if (!next.type.startsWith("image/")) { setError("请选择 PNG、JPG 或 WebP 图片"); return; }
+    const url = URL.createObjectURL(next); const img = new Image();
+    img.onload = () => { sourceImage.current = img; setSourceSize({ width: img.naturalWidth, height: img.naturalHeight }); setSourceVersion((n) => n + 1); setError(""); };
+    img.onerror = () => setError("图片读取失败，请换一张图片重试"); img.src = url;
+    setFile(next); setSourceUrl(url); setCrop({ x: 0, y: 0 }); setZoom(1); setResult(null);
+  };
+
   const convert = async () => {
-    if (!file) return; setBusy(true); setResult(null);
+    const img = sourceImage.current; if (!file || !img) return; setBusy(true); setResult(null); setError("");
     try {
-      const bitmap = await createImageBitmap(file); const c = document.createElement("canvas"); c.width = width; c.height = height; const ctx = c.getContext("2d")!; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-      const sourceRatio = bitmap.width / bitmap.height, targetRatio = width / height;
-      if (fitMode === "cover") {
-        const sw = sourceRatio > targetRatio ? bitmap.height * targetRatio : bitmap.width; const sh = sourceRatio > targetRatio ? bitmap.height : bitmap.width / targetRatio;
-        ctx.drawImage(bitmap, (bitmap.width - sw) / 2, (bitmap.height - sh) / 2, sw, sh, 0, 0, width, height);
-      } else {
-        const scale = Math.min(width / bitmap.width, height / bitmap.height); const dw = bitmap.width * scale, dh = bitmap.height * scale;
-        ctx.drawImage(bitmap, (width - dw) / 2, (height - dh) / 2, dw, dh);
-      }
-      bitmap.close();
+      const c = document.createElement("canvas"); c.width = width; c.height = height; const ctx = c.getContext("2d")!; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      drawSource(ctx, img, width, height, fitMode, zoom, crop);
       const image = ctx.getImageData(0, 0, width, height); worker.current?.terminate();
       const w = new Worker(new URL("./image-worker.ts", import.meta.url), { type: "module" }); worker.current = w;
       const cells = await new Promise<Uint16Array>((resolve, reject) => { w.onmessage = (e) => resolve(new Uint16Array(e.data.cells)); w.onerror = () => reject(new Error("转换线程失败")); w.postMessage({ pixels: image.data, width, height, palette: palette.map(({ index, rgb }) => ({ index, rgb })), dither, maxColors }, [image.data.buffer]); });
       setResult(cells);
-    } catch (e) { alert(e instanceof Error ? e.message : "图片转换失败"); } finally { setBusy(false); }
+    } catch (e) { setError(e instanceof Error ? e.message : "图片转换失败"); } finally { setBusy(false); }
   };
-  const confirm = () => { if (!result) return; const p = createProject(width, height, file?.name.replace(/\.[^.]+$/, "") || "IMAGE STUDY"); p.cells = result; p.palette = palette.map((c) => ({ ...c })); replace(p); onClose(); };
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <section className="modal converter" role="dialog" aria-modal="true" aria-labelledby="convert-title">
-      <header><div><span className="eyebrow">LOCAL PROCESSING / 02</span><h2 id="convert-title">图片转拼豆</h2></div><button className="icon-button" onClick={onClose} aria-label="关闭">×</button></header>
-      <div className="convert-layout"><div className="convert-form">
-        <label className="upload-zone"><input type="file" accept="image/*" onChange={(e) => { setFile(e.target.files?.[0] || null); setResult(null); }} /><span className="upload-icon">＋</span><strong>{file?.name || "选择本地图片"}</strong><small>图片只在当前设备处理，不会上传</small></label>
-        <div className="form-row"><label>宽度<input type="number" min="8" max="256" value={width} onChange={(e) => setWidth(Math.max(8, Math.min(256, +e.target.value)))} /></label><label>高度<input type="number" min="8" max="256" value={height} onChange={(e) => setHeight(Math.max(8, Math.min(256, +e.target.value)))} /></label></div>
-        <label>画面适配<select value={fitMode} onChange={(e) => setFitMode(e.target.value as "cover" | "contain")}><option value="cover">居中裁剪 · 填满画布</option><option value="contain">完整适配 · 保留透明边缘</option></select></label>
-        <label>最大颜色数 <b>{maxColors}</b><input type="range" min="4" max={palette.length} value={maxColors} onChange={(e) => setMaxColors(+e.target.value)} /></label>
-        <label className="switch-row"><span><strong>误差扩散抖动</strong><small>适合渐变照片，纯色插画建议关闭</small></span><input aria-label="误差扩散抖动" type="checkbox" checked={dither} onChange={(e) => setDither(e.target.checked)} /></label>
-        <button className="primary wide" disabled={!file || busy} onClick={convert}>{busy ? "正在匹配 OKLab 色彩…" : "生成预览"}</button>
-      </div><div className="convert-preview">{result ? <canvas ref={preview} /> : <div className="preview-empty"><span>▦</span><p>转换结果将在这里预览</p></div>}</div></div>
-      <footer><button className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={!result} onClick={confirm}>创建为新作品</button></footer>
+
+  const confirm = () => { if (!result) return; const p = createProject(width, height, file?.name.replace(/\.[^.]+$/, "") || "图片拼豆"); p.cells = result; p.palette = palette.map((c) => ({ ...c })); replace(p); onClose(); };
+  const pointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => { if (fitMode !== "cover") return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { px: e.clientX, py: e.clientY, crop }; };
+  const pointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => { if (!drag.current) return; const rect = e.currentTarget.getBoundingClientRect(); setCrop({ x: Math.max(-1, Math.min(1, drag.current.crop.x - (e.clientX - drag.current.px) / rect.width * 2)), y: Math.max(-1, Math.min(1, drag.current.crop.y - (e.clientY - drag.current.py) / rect.height * 2)) }); };
+  const pointerUp = () => { drag.current = null; };
+
+  return <div className="modal-backdrop soft-backdrop" role="presentation">
+    <section className="modal converter crop-modal" role="dialog" aria-modal="true" aria-labelledby="convert-title">
+      <header><div><span className="eyebrow">IMAGE TO BEADS</span><h2 id="convert-title">图片转拼豆</h2><p>上传喜欢的图片，裁出最合适的画面，再映射到拼豆色板。</p></div><button className="icon-button" onClick={onClose} aria-label="关闭">×</button></header>
+      <div className="crop-layout">
+        <div className="crop-stage">
+          {!sourceUrl ? <button className="image-dropzone" onClick={() => fileInput.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); chooseFile(e.dataTransfer.files[0]); }}>
+            <span className="drop-illustration">♡</span><strong>上传一张普通图片</strong><small>点击选择，或把 PNG / JPG / WebP 拖到这里</small><em>所有处理都只在你的设备上完成</em>
+          </button> : <>
+            <div className="crop-canvas-shell"><canvas ref={cropCanvas} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} aria-label="图片裁切预览"/><div className="crop-grid"/><span className="crop-tip">拖动图片调整位置</span></div>
+            <div className="crop-file-row"><span><b>{file?.name}</b><small>{sourceSize.width} × {sourceSize.height}</small></span><button onClick={() => fileInput.current?.click()}>更换图片</button></div>
+          </>}
+          <input ref={fileInput} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => chooseFile(e.target.files?.[0])}/>
+          {result && <div className="conversion-result"><div><span>转换预览</span><small>{width} × {height} · {new Set(result).size} 种颜色</small></div><canvas ref={resultCanvas}/></div>}
+        </div>
+        <div className="crop-settings">
+          <div className="setting-title"><span>01</span><div><b>画布尺寸</b><small>最多支持 256 × 256</small></div></div>
+          <div className="form-row"><label>宽度<input type="number" min="8" max="256" value={width} onChange={(e) => { setWidth(Math.max(8, Math.min(256, +e.target.value))); setResult(null); }} /></label><label>高度<input type="number" min="8" max="256" value={height} onChange={(e) => { setHeight(Math.max(8, Math.min(256, +e.target.value))); setResult(null); }} /></label></div>
+          <div className="setting-title"><span>02</span><div><b>裁切方式</b><small>裁切模式支持拖动和缩放</small></div></div>
+          <div className="soft-segment"><button className={fitMode === "cover" ? "active" : ""} onClick={() => { setFitMode("cover"); setResult(null); }}>裁切填满</button><button className={fitMode === "contain" ? "active" : ""} onClick={() => { setFitMode("contain"); setResult(null); }}>完整保留</button></div>
+          <label className={fitMode === "contain" ? "range-label disabled" : "range-label"}><span>图片缩放 <b>{zoom.toFixed(1)}×</b></span><input disabled={fitMode === "contain"} type="range" min="1" max="4" step="0.1" value={zoom} onChange={(e) => { setZoom(+e.target.value); setResult(null); }}/></label>
+          <div className="setting-title"><span>03</span><div><b>颜色处理</b><small>匹配当前拼豆色板</small></div></div>
+          <label className="range-label"><span>最大颜色数 <b>{maxColors}</b></span><input type="range" min="4" max={palette.length} value={maxColors} onChange={(e) => { setMaxColors(+e.target.value); setResult(null); }}/></label>
+          <label className="pastel-switch"><span><b>柔化渐变（抖动）</b><small>照片建议开启，插画建议关闭</small></span><input aria-label="柔化渐变" type="checkbox" checked={dither} onChange={(e) => { setDither(e.target.checked); setResult(null); }}/></label>
+          {error && <p className="form-error">{error}</p>}
+          <button className="primary wide convert-action" disabled={!file || busy} onClick={convert}>{busy ? "正在生成拼豆预览…" : result ? "重新生成预览" : "生成拼豆预览"}</button>
+        </div>
+      </div>
+      <footer><span>你的原作品不会被覆盖</span><div><button className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={!result} onClick={confirm}>创建为新作品</button></div></footer>
     </section>
   </div>;
 }

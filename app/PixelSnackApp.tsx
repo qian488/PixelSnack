@@ -44,11 +44,12 @@ export default function PixelSnackApp() {
   return <main className="app-shell">
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
     <header className="topbar">
-      <div className="brand-block"><button className="back-button" aria-label="返回作品列表">‹</button><div className="brand-mark" role="img" aria-label="PixelSnack 品牌标志"/><div><div className="brand-name">PIXEL<span>SNACK</span></div><small>CYBER BEAD STUDIO</small></div></div>
+      <div className="brand-block"><button className="back-button" aria-label="返回作品列表">‹</button><div className="brand-mark" role="img" aria-label="PixelSnack 品牌标志"/><div><div className="brand-name">PIXEL<span>SNACK</span></div><small>PIXEL BEAD ATELIER</small></div></div>
       <div className="project-title"><span>PROJECT /</span><input aria-label="作品名称" value={project.name} onChange={(e) => editor.rename(e.target.value)} /><i className={saved ? "saved" : "saving"}>{saved ? "● 已保存" : "○ 保存中"}</i></div>
       <div className="top-actions">
         <button className="top-icon danger" onClick={() => { if (confirm("清空当前画布？此操作可以撤销。")) editor.clear(); }} aria-label="清空画布">⌫</button>
         <button className="top-icon" onClick={editor.undo} disabled={!editor.undoStack.length} aria-label="撤销">↶</button><button className="top-icon hide-mobile" onClick={editor.redo} disabled={!editor.redoStack.length} aria-label="重做">↷</button>
+        <button className="image-convert-button" onClick={() => setConvertOpen(true)}><span>✿</span><b>图片转拼豆</b></button>
         <button className="save-button" onClick={() => saveLocal(project).then(() => flash("作品已保存到本机"))}><span>▣</span><b>保存</b><small>CTRL S</small></button>
         <button className="export-button" onClick={() => setExportOpen(true)}><span>✓</span>完成并导出</button>
       </div>
@@ -75,7 +76,7 @@ export default function PixelSnackApp() {
       </section>
 
       <aside className="right-panel panel">
-        <div className="right-tabs"><button className="active">色板</button><button onClick={() => setConvertOpen(true)}>转图</button><button onClick={() => filePalette.current?.click()}>导入</button></div>
+        <div className="right-tabs"><button className="active">色板</button><button onClick={() => setConvertOpen(true)}>图片转拼豆</button><button onClick={() => filePalette.current?.click()}>导入色板</button></div>
         <input ref={filePalette} hidden type="file" accept=".csv,.json" onChange={(e) => handlePalette(e.target.files?.[0])}/>
         <div className="current-color"><span style={{ background: project.palette.find((c) => c.index === editor.color)?.hex }}/><div><small>CURRENT COLOR</small><b>{project.palette.find((c) => c.index === editor.color)?.code}</b></div><em>{usage.get(editor.color) || 0} PCS</em></div>
         <div className="color-search"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索色号 / 名称" /></div>
