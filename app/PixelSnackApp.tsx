@@ -47,8 +47,7 @@ export default function PixelSnackApp() {
       <div className="brand-block"><div className="brand-mark" role="img" aria-label="PixelSnack 品牌标志"/><div><div className="brand-name">PIXEL<span>SNACK</span></div><small>PIXEL BEAD ATELIER</small></div></div>
       <div className="project-title"><span>PROJECT /</span><input aria-label="作品名称" value={project.name} onChange={(e) => editor.rename(e.target.value)} /><i className={saved ? "saved" : "saving"}>{saved ? "● 已保存" : "○ 保存中"}</i></div>
       <div className="top-actions">
-        <button className="top-icon danger" onClick={() => { if (confirm("清空当前画布？此操作可以撤销。")) editor.clear(); }} aria-label="清空画布">⌫</button>
-        <button className="top-icon" onClick={editor.undo} disabled={!editor.undoStack.length} aria-label="撤销">↶</button><button className="top-icon hide-mobile" onClick={editor.redo} disabled={!editor.redoStack.length} aria-label="重做">↷</button>
+        <button className="top-icon mobile-history" onClick={editor.undo} disabled={!editor.undoStack.length} aria-label="撤销">↶</button>
         <button className="image-convert-button" onClick={() => setConvertOpen(true)}><span>✿</span><b>图片转拼豆</b></button>
         <button className="save-button" onClick={() => saveLocal(project).then(() => flash("作品已保存到本机"))}><span>▣</span><b>保存</b><small>CTRL S</small></button>
         <button className="export-button" onClick={() => setExportOpen(true)}><span>✓</span>完成并导出</button>
@@ -58,6 +57,7 @@ export default function PixelSnackApp() {
     <section className="workspace">
       <aside className="left-panel panel">
         <div className="panel-heading"><span className="target">✥</span><div><b>导航器</b><small>NAVIGATOR</small></div><span className="live-dot">LIVE</span></div>
+        <div className="project-dock"><button onClick={() => setNewOpen(true)}><span>＋</span><small>新建</small></button><button onClick={() => fileProject.current?.click()}><span>⇧</span><small>导入</small></button><button onClick={() => exportProject(project)}><span>◇</span><small>备份</small></button></div>
         <MiniMap />
         <div className="zoom-readout"><strong>{Math.round(zoom / 16 * 100)}%</strong><span>{project.width} × {project.height}</span></div>
         <input className="vertical-range" aria-label="画布缩放比例" type="range" min="10" max="400" value={Math.min(400, Math.max(10, Math.round(zoom / 16 * 100)))} onChange={(e) => window.dispatchEvent(new CustomEvent("pixelsnack:setzoom", { detail: +e.target.value / 100 * 16 }))} />
@@ -70,13 +70,13 @@ export default function PixelSnackApp() {
         <PixelCanvas onZoom={setZoom} />
         <div className="floating-tools">
           {tools.map((t) => <button key={t.id} className={editor.tool === t.id ? "active" : ""} onClick={() => editor.setTool(t.id)} title={`${t.label} (${t.key})`} aria-label={t.label}><span>{t.icon}</span><small>{t.label}</small></button>)}
-          <i/><button onClick={editor.toggleGrid} className={editor.showGrid ? "active" : ""} aria-label="切换网格"><span>▦</span><small>网格</small></button><button onClick={editor.toggleBoards} className={editor.showBoards ? "active" : ""} aria-label="切换分板线"><span>⌗</span><small>分板</small></button>
+          <i/><button onClick={editor.toggleGrid} className={editor.showGrid ? "active" : ""} aria-label="切换网格"><span>▦</span><small>网格</small></button><button onClick={editor.toggleBoards} className={editor.showBoards ? "active" : ""} aria-label="切换分板线"><span>⌗</span><small>分板</small></button><div className="tool-meta"><b>{tools.find((t) => t.id === editor.tool)?.label}</b><small>{total.toLocaleString()} 颗</small></div>
         </div>
-        <div className="stage-status"><span><i className="cyan-dot"/> {tools.find((t) => t.id === editor.tool)?.label}模式</span><span>笔刷 {editor.brushSize}×{editor.brushSize}</span><span>{total.toLocaleString()} 颗拼豆</span></div>
       </section>
 
       <aside className="right-panel panel">
         <div className="right-tabs"><button className="active">色板</button><button onClick={() => filePalette.current?.click()}>导入色板</button></div>
+        <div className="edit-history-bar"><button className="danger" onClick={() => { if (confirm("清空当前画布？此操作可以撤销。")) editor.clear(); }}><span>⌫</span><small>清空</small></button><button onClick={editor.undo} disabled={!editor.undoStack.length}><span>↶</span><small>撤销</small></button><button onClick={editor.redo} disabled={!editor.redoStack.length}><span>↷</span><small>重做</small></button></div>
         <input ref={filePalette} hidden type="file" accept=".csv,.json" onChange={(e) => handlePalette(e.target.files?.[0])}/>
         <div className="current-color"><span style={{ background: project.palette.find((c) => c.index === editor.color)?.hex }}/><div><small>CURRENT COLOR</small><b>{project.palette.find((c) => c.index === editor.color)?.code}</b></div><em>{usage.get(editor.color) || 0} PCS</em></div>
         <div className="color-search"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索色号 / 名称" /></div>
@@ -90,7 +90,6 @@ export default function PixelSnackApp() {
     <nav className="mobile-nav"><button onClick={() => setMobilePanel(mobilePanel === "tools" ? null : "tools")}>✦<small>工具</small></button><button onClick={() => setMobilePanel(mobilePanel === "colors" ? null : "colors")}>◉<small>色板</small></button><button onClick={() => setConvertOpen(true)}>▧<small>转图</small></button><button onClick={() => setExportOpen(true)}>✓<small>导出</small></button></nav>
     {mobilePanel && <div className="mobile-sheet"><div className="sheet-grip"/>{mobilePanel === "tools" ? <div className="mobile-tools">{tools.map((t) => <button key={t.id} className={editor.tool === t.id ? "active" : ""} onClick={() => { editor.setTool(t.id); setMobilePanel(null); }}>{t.icon}<small>{t.label}</small></button>)}</div> : <div className="mobile-colors">{project.palette.map((c) => <button key={c.index} className={editor.color === c.index ? "selected" : ""} style={{ background: c.hex }} onClick={() => { editor.setColor(c.index); editor.setTool("pencil"); setMobilePanel(null); }}/>)}</div>}</div>}
 
-    <div className="quick-create"><button onClick={() => setNewOpen(true)}>＋ 新建</button><button onClick={() => fileProject.current?.click()}>⇧ 导入工程</button><button onClick={() => exportProject(project)}>⇩ 备份工程</button></div>
     <input ref={fileProject} hidden type="file" accept=".pixelsnack" onChange={(e) => handleProject(e.target.files?.[0])}/>
     {notice && <div className="toast" role="status">{notice}</div>}
     <ImageConverter open={convertOpen} onClose={() => setConvertOpen(false)} />
