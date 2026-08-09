@@ -12,12 +12,10 @@
     "test": "vitest run --config vitest.config.ts",
     "test:render": "npm run build && node --test tests/rendered-html.test.mjs",
     "test:e2e": "playwright test",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
     "dexie": "^4.4.4",
-    "drizzle-orm": "0.45.2",
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "react": "19.2.6",
@@ -36,7 +34,6 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "cross-env": "^10.1.0",
-    "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   icons: { icon: "/logo.png", shortcut: "/logo.png", apple: "/logo.png" },
 };
 
-export const viewport = { themeColor: "#171c1f", width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const viewport = { themeColor: "#86aef5", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return <html lang="zh-CN"><body>{children}</body></html>;

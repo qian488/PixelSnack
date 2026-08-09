@@ -4,6 +4,7 @@ import { CellChange, lineCells } from "./editor-core";
 import { useEditor } from "./editor-store";
 
 type View = { scale: number; x: number; y: number };
+type SharedView = View & { viewportWidth: number; viewportHeight: number };
 
 export function PixelCanvas({ onZoom }: { onZoom?: (value: number) => void }) {
   const wrap = useRef<HTMLDivElement>(null); const bg = useRef<HTMLCanvasElement>(null); const art = useRef<HTMLCanvasElement>(null); const ui = useRef<HTMLCanvasElement>(null);
@@ -38,9 +39,12 @@ export function PixelCanvas({ onZoom }: { onZoom?: (value: number) => void }) {
       view.current = { scale, x: rect.width / 2 - worldX * scale, y: rect.height / 2 - worldY * scale };
       onZoom?.(scale); setViewRevision((n) => n + 1);
     };
-    window.addEventListener("pixelsnack:fit", handleFit); window.addEventListener("pixelsnack:100", handle100); window.addEventListener("pixelsnack:setzoom", handleSetZoom);
-    return () => { window.removeEventListener("pixelsnack:fit", handleFit); window.removeEventListener("pixelsnack:100", handle100); window.removeEventListener("pixelsnack:setzoom", handleSetZoom); };
+    const handleCenter = (event: Event) => { const rect = wrap.current?.getBoundingClientRect(); if (!rect) return; const point = (event as CustomEvent<{ x: number; y: number }>).detail; view.current = { ...view.current, x: rect.width / 2 - point.x * view.current.scale, y: rect.height / 2 - point.y * view.current.scale }; setViewRevision((n) => n + 1); };
+    window.addEventListener("pixelsnack:fit", handleFit); window.addEventListener("pixelsnack:100", handle100); window.addEventListener("pixelsnack:setzoom", handleSetZoom); window.addEventListener("pixelsnack:center", handleCenter);
+    return () => { window.removeEventListener("pixelsnack:fit", handleFit); window.removeEventListener("pixelsnack:100", handle100); window.removeEventListener("pixelsnack:setzoom", handleSetZoom); window.removeEventListener("pixelsnack:center", handleCenter); };
   }, [fit, onZoom, project.width, project.height]);
+
+  useEffect(() => { const rect = wrap.current?.getBoundingClientRect(); if (!rect) return; window.dispatchEvent(new CustomEvent<SharedView>("pixelsnack:viewchange", { detail: { ...view.current, viewportWidth: rect.width, viewportHeight: rect.height } })); }, [viewRevision]);
 
   useEffect(() => {
     const dpr = Math.min(devicePixelRatio || 1, 2); const v = view.current; const palette = new Map(project.palette.map((c) => [c.index, c.hex]));
@@ -105,7 +109,9 @@ export function PixelCanvas({ onZoom }: { onZoom?: (value: number) => void }) {
 }
 
 export function MiniMap() {
-  const ref = useRef<HTMLCanvasElement>(null); const { project, revision } = useEditor();
-  useEffect(() => { const c = ref.current!; const dpr = devicePixelRatio || 1; const size = 152; c.width = size * dpr; c.height = size * dpr; const ctx = c.getContext("2d")!; ctx.scale(dpr, dpr); ctx.fillStyle = "#f2efe7"; ctx.fillRect(0, 0, size, size); const scale = Math.min(size / project.width, size / project.height); const ox = (size - project.width * scale) / 2, oy = (size - project.height * scale) / 2; const p = new Map(project.palette.map((x) => [x.index, x.hex])); if (project.guideCells) { ctx.globalAlpha = .25; project.guideCells.forEach((v, i) => { if (!v || project.cells[i]) return; ctx.fillStyle = p.get(v)!; ctx.fillRect(ox + (i % project.width) * scale, oy + Math.floor(i / project.width) * scale, Math.ceil(scale), Math.ceil(scale)); }); ctx.globalAlpha = 1; } project.cells.forEach((v, i) => { if (!v) return; ctx.fillStyle = p.get(v)!; ctx.fillRect(ox + (i % project.width) * scale, oy + Math.floor(i / project.width) * scale, Math.ceil(scale), Math.ceil(scale)); }); ctx.strokeStyle = "#70f6f4"; ctx.lineWidth = 3; ctx.strokeRect(1.5, 1.5, size - 3, size - 3); }, [project, revision]);
-  return <canvas className="minimap" ref={ref} aria-label="作品导航缩略图" />;
+  const ref = useRef<HTMLCanvasElement>(null); const sharedView = useRef<SharedView | null>(null); const [viewRevision, setViewRevision] = useState(0); const { project, revision } = useEditor();
+  useEffect(() => { const update = (event: Event) => { sharedView.current = (event as CustomEvent<SharedView>).detail; setViewRevision((value) => value + 1); }; window.addEventListener("pixelsnack:viewchange", update); return () => window.removeEventListener("pixelsnack:viewchange", update); }, []);
+  useEffect(() => { const c = ref.current!; const dpr = devicePixelRatio || 1; const size = 152; c.width = size * dpr; c.height = size * dpr; const ctx = c.getContext("2d")!; ctx.scale(dpr, dpr); ctx.fillStyle = "#f6f5fb"; ctx.fillRect(0, 0, size, size); const scale = Math.min(size / project.width, size / project.height); const ox = (size - project.width * scale) / 2, oy = (size - project.height * scale) / 2; const p = new Map(project.palette.map((x) => [x.index, x.hex])); if (project.guideCells) { ctx.globalAlpha = .25; project.guideCells.forEach((v, i) => { if (!v || project.cells[i]) return; ctx.fillStyle = p.get(v)!; ctx.fillRect(ox + (i % project.width) * scale, oy + Math.floor(i / project.width) * scale, Math.ceil(scale), Math.ceil(scale)); }); ctx.globalAlpha = 1; } project.cells.forEach((v, i) => { if (!v) return; ctx.fillStyle = p.get(v)!; ctx.fillRect(ox + (i % project.width) * scale, oy + Math.floor(i / project.width) * scale, Math.ceil(scale), Math.ceil(scale)); }); const current = sharedView.current; if (current) { const left = Math.max(0, -current.x / current.scale), top = Math.max(0, -current.y / current.scale), right = Math.min(project.width, (current.viewportWidth - current.x) / current.scale), bottom = Math.min(project.height, (current.viewportHeight - current.y) / current.scale); ctx.fillStyle = "rgba(134,174,245,.13)"; ctx.strokeStyle = "#8d7ddd"; ctx.lineWidth = 2; ctx.fillRect(ox + left * scale, oy + top * scale, Math.max(2, (right - left) * scale), Math.max(2, (bottom - top) * scale)); ctx.strokeRect(ox + left * scale, oy + top * scale, Math.max(2, (right - left) * scale), Math.max(2, (bottom - top) * scale)); } ctx.strokeStyle = "#a58ae9"; ctx.lineWidth = 2; ctx.strokeRect(1, 1, size - 2, size - 2); }, [project, revision, viewRevision]);
+  const navigate = (event: React.PointerEvent<HTMLCanvasElement>) => { const rect = event.currentTarget.getBoundingClientRect(), size = 152, scale = Math.min(size / project.width, size / project.height), ox = (size - project.width * scale) / 2, oy = (size - project.height * scale) / 2; const x = Math.max(0, Math.min(project.width, ((event.clientX - rect.left) / rect.width * size - ox) / scale)), y = Math.max(0, Math.min(project.height, ((event.clientY - rect.top) / rect.height * size - oy) / scale)); window.dispatchEvent(new CustomEvent("pixelsnack:center", { detail: { x, y } })); };
+  return <canvas className="minimap" ref={ref} aria-label="作品导航缩略图，可拖动定位" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); navigate(event); }} onPointerMove={(event) => { if (event.buttons) navigate(event); }} />;
 }

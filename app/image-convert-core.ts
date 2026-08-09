@@ -11,8 +11,22 @@ function oklab([r8, g8, b8]: [number, number, number]) {
 }
 
 export function convertPixels({ pixels, width, height, palette: sourcePalette, dither, maxColors }: ConvertInput) {
-  const palette = sourcePalette.slice(0, maxColors).map((entry) => ({ ...entry, lab: oklab(entry.rgb) }));
-  if (!palette.length) throw new Error("当前色板没有可用颜色");
+  if (maxColors < 1) throw new Error("当前色板没有可用颜色");
+  const allPalette = sourcePalette.map((entry) => ({ ...entry, lab: oklab(entry.rgb) }));
+  if (!allPalette.length) throw new Error("当前色板没有可用颜色");
+  const usage = new Map<number, number>();
+  for (let i = 0; i < width * height; i++) {
+    const p = i * 4; if (pixels[p + 3] < 32) continue;
+    const lab = oklab([pixels[p], pixels[p + 1], pixels[p + 2]]);
+    let best = allPalette[0], distance = Infinity;
+    for (const candidate of allPalette) {
+      const delta = (lab[0] - candidate.lab[0]) ** 2 + (lab[1] - candidate.lab[1]) ** 2 + (lab[2] - candidate.lab[2]) ** 2;
+      if (delta < distance) { distance = delta; best = candidate; }
+    }
+    usage.set(best.index, (usage.get(best.index) || 0) + 1);
+  }
+  const palette = allPalette.filter((entry) => usage.has(entry.index)).sort((a, b) => (usage.get(b.index) || 0) - (usage.get(a.index) || 0)).slice(0, Math.max(1, maxColors));
+  if (!palette.length) return new Uint16Array(width * height);
   const work = new Float32Array(pixels.length); pixels.forEach((value, index) => { work[index] = value; });
   const cells = new Uint16Array(width * height);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {

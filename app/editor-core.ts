@@ -130,6 +130,24 @@ export function colorUsage(project: PixelProject) {
   return counts;
 }
 
+export function validateProject(project: PixelProject) {
+  if (project.schemaVersion !== 1) throw new Error("不支持的工程版本");
+  if (!Number.isInteger(project.width) || !Number.isInteger(project.height) || project.width < 1 || project.height < 1 || project.width > 256 || project.height > 256) throw new Error("工程画布尺寸不正确");
+  if (!project.board || !Number.isInteger(project.board.width) || !Number.isInteger(project.board.height) || project.board.width < 1 || project.board.height < 1 || project.board.width > 256 || project.board.height > 256) throw new Error("拼豆板规格不正确");
+  if (!(project.cells instanceof Uint16Array) || project.cells.length !== project.width * project.height) throw new Error("画布数据长度不正确");
+  if (project.guideCells && (!(project.guideCells instanceof Uint16Array) || project.guideCells.length !== project.cells.length)) throw new Error("参考底图数据长度不正确");
+  if (!Array.isArray(project.palette) || !project.palette.length || project.palette.length > 65535) throw new Error("工程色板不正确");
+  const indices = new Set<number>();
+  for (const color of project.palette) {
+    if (!Number.isInteger(color.index) || color.index < 1 || color.index > 65535 || indices.has(color.index)) throw new Error("工程色板索引不正确");
+    if (!color.brand || !color.code || !color.name || !/^#[0-9a-f]{6}$/i.test(color.hex) || !Array.isArray(color.rgb) || color.rgb.length !== 3 || color.rgb.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) throw new Error(`色板颜色 ${color.code || color.index} 格式不正确`);
+    indices.add(color.index);
+  }
+  for (const value of project.cells) if (value && !indices.has(value)) throw new Error(`画布引用了不存在的色板索引 ${value}`);
+  if (project.guideCells) for (const value of project.guideCells) if (value && !indices.has(value)) throw new Error(`参考底图引用了不存在的色板索引 ${value}`);
+  return project;
+}
+
 export function parsePalette(text: string, filename: string): PaletteColor[] {
   let rows: { brand: string; code: string; name: string; hex: string; finish?: string }[];
   if (filename.toLowerCase().endsWith(".json")) rows = JSON.parse(text);

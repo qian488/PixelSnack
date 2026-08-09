@@ -11,6 +11,6 @@ async function render() {
 test("server renders the PixelSnack editor shell", async () => {
   const response = await render(); assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /PixelSnack/); assert.match(html, /赛博拼豆工作室/);
+  assert.match(html, /PixelSnack/); assert.match(html, /二次元拼豆工作室/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });

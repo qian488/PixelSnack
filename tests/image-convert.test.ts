@@ -23,6 +23,22 @@ describe("image conversion", () => {
     expect([...cells]).toEqual([0]);
   });
 
+  it("selects the most useful colors from the whole palette instead of its first entries", () => {
+    const cells = convertPixels({
+      pixels: new Uint8ClampedArray([250, 20, 20, 255, 245, 25, 25, 255, 255, 255, 255, 255]),
+      width: 3,
+      height: 1,
+      palette: [
+        { index: 1, rgb: [0, 0, 0] },
+        { index: 2, rgb: [255, 255, 255] },
+        { index: 3, rgb: [255, 0, 0] },
+      ],
+      dither: false,
+      maxColors: 1,
+    });
+    expect([...cells]).toEqual([3, 3, 3]);
+  });
+
   it("fails clearly when no palette color is available", () => {
     expect(() => convertPixels({
       pixels: new Uint8ClampedArray([0, 0, 0, 255]),

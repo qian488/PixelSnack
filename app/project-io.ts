@@ -1,8 +1,6 @@
 "use client";
 import Dexie, { type EntityTable } from "dexie";
-import JSZip from "jszip";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { PixelProject } from "./editor-core";
+import { PixelProject, validateProject } from "./editor-core";
 
 type StoredProject = Omit<PixelProject, "cells" | "guideCells"> & { cells: ArrayBuffer; guideCells?: ArrayBuffer };
 const db = new Dexie("pixelsnack") as Dexie & { projects: EntityTable<StoredProject, "id"> };
@@ -15,7 +13,7 @@ function stored(project: PixelProject): StoredProject {
 }
 
 function restored(project: StoredProject): PixelProject {
-  return { ...project, cells: new Uint16Array(project.cells), guideCells: project.guideCells ? new Uint16Array(project.guideCells) : undefined };
+  return validateProject({ ...project, cells: new Uint16Array(project.cells), guideCells: project.guideCells ? new Uint16Array(project.guideCells) : undefined });
 }
 
 export async function saveLocal(project: PixelProject) { await db.projects.put(stored(project)); }
@@ -52,6 +50,7 @@ export async function exportPng(project: PixelProject, scale = 12, grid = false,
 }
 
 export async function exportProject(project: PixelProject) {
+  const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
   const manifest = { schemaVersion: project.schemaVersion, id: project.id, name: project.name, width: project.width, height: project.height, palette: project.palette, board: project.board, createdAt: project.createdAt, updatedAt: project.updatedAt, hasGuide: Boolean(project.guideCells) };
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
@@ -63,6 +62,7 @@ export async function exportProject(project: PixelProject) {
 }
 
 export async function importProject(file: File): Promise<PixelProject> {
+  const { default: JSZip } = await import("jszip");
   const zip = await JSZip.loadAsync(file); const manifestFile = zip.file("manifest.json"), cellsFile = zip.file("cells.bin");
   if (!manifestFile || !cellsFile) throw new Error("工程包缺少 manifest.json 或 cells.bin");
   const manifest = JSON.parse(await manifestFile.async("string"));
@@ -74,10 +74,11 @@ export async function importProject(file: File): Promise<PixelProject> {
   if (guideData && guideData.byteLength !== manifest.width * manifest.height * 2) throw new Error("参考底图数据长度不正确");
   const { hasGuide: _hasGuide, ...projectManifest } = manifest;
   void _hasGuide;
-  return { ...projectManifest, cells: new Uint16Array(data), guideCells: guideData ? new Uint16Array(guideData) : undefined, id: crypto.randomUUID(), updatedAt: new Date().toISOString() };
+  return validateProject({ ...projectManifest, cells: new Uint16Array(data), guideCells: guideData ? new Uint16Array(guideData) : undefined, id: crypto.randomUUID(), updatedAt: new Date().toISOString() });
 }
 
 export async function exportPdf(project: PixelProject) {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
   const doc = await PDFDocument.create(); const font = await doc.embedFont(StandardFonts.Helvetica); const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const pageW = 841.89, pageH = 595.28, margin = 34; const boardW = project.board.width, boardH = project.board.height;
   const colors = new Map(project.palette.map((c) => [c.index, c]));

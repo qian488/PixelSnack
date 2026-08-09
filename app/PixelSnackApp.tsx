@@ -16,16 +16,24 @@ export default function PixelSnackApp() {
   const editor = useEditor(); const { project } = editor;
   const [zoom, setZoom] = useState(12); const [search, setSearch] = useState(""); const [savedRevision, setSavedRevision] = useState(0);
   const [newOpen, setNewOpen] = useState(false); const [exportOpen, setExportOpen] = useState(false); const [convertOpen, setConvertOpen] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<"tools" | "colors" | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"tools" | "colors" | "project" | null>(null); const [notice, setNotice] = useState<string | null>(null);
   const [pngGrid, setPngGrid] = useState(false); const [pngTransparent, setPngTransparent] = useState(false); const [pngScale, setPngScale] = useState(12);
   const fileProject = useRef<HTMLInputElement>(null); const filePalette = useRef<HTMLInputElement>(null);
+  const latestProject = useRef(project);
   const saved = savedRevision === editor.revision;
   const usage = useMemo(() => colorUsage(project), [project]); const total = useMemo(() => [...usage.values()].reduce((a, b) => a + b, 0), [usage]);
   const filtered = project.palette.filter((c) => `${c.code} ${c.name}`.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => { if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
   useEffect(() => { loadLatest().then((p) => { if (p) editor.replaceProject(p); }).catch(() => setNotice("本地作品恢复失败，请使用工程文件导入。")); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { latestProject.current = project; }, [project]);
   useEffect(() => { const t = setTimeout(() => saveLocal(project).then(() => setSavedRevision(editor.revision)).catch(() => setNotice("自动保存失败，请立即导出工程文件备份。")), 1000); return () => clearTimeout(t); }, [project, editor.revision]);
+  useEffect(() => {
+    const flush = () => { void saveLocal(latestProject.current); };
+    const visibility = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush); document.addEventListener("visibilitychange", visibility);
+    return () => { window.removeEventListener("pagehide", flush); document.removeEventListener("visibilitychange", visibility); };
+  }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).matches("input,textarea,select")) return;
@@ -39,7 +47,7 @@ export default function PixelSnackApp() {
 
   const flash = (message: string) => { setNotice(message); setTimeout(() => setNotice(null), 2800); };
   const handleProject = async (file?: File) => { if (!file) return; try { editor.replaceProject(await importProject(file)); flash("工程已安全导入"); } catch (e) { flash(e instanceof Error ? e.message : "工程导入失败"); } };
-  const handlePalette = async (file?: File) => { if (!file) return; try { const palette = parsePalette(await file.text(), file.name); const next = { ...project, palette, cells: new Uint16Array(project.cells.length), updatedAt: new Date().toISOString() }; editor.replaceProject(next); flash(`已导入 ${palette.length} 个色号，画布已清空以避免错色`); } catch (e) { flash(e instanceof Error ? e.message : "色板导入失败"); } };
+  const handlePalette = async (file?: File) => { if (!file) return; try { const palette = parsePalette(await file.text(), file.name); const { guideCells: _guide, ...rest } = project; void _guide; const next = { ...rest, palette, cells: new Uint16Array(project.cells.length), updatedAt: new Date().toISOString() }; editor.replaceProject(next); flash(`已导入 ${palette.length} 个色号，画布已清空以避免错色`); } catch (e) { flash(e instanceof Error ? e.message : "色板导入失败"); } };
 
   return <main className="app-shell">
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
@@ -87,8 +95,8 @@ export default function PixelSnackApp() {
       </aside>
     </section>
 
-    <nav className="mobile-nav"><button onClick={() => setMobilePanel(mobilePanel === "tools" ? null : "tools")}>✦<small>工具</small></button><button onClick={() => setMobilePanel(mobilePanel === "colors" ? null : "colors")}>◉<small>色板</small></button><button onClick={() => setConvertOpen(true)}>▧<small>转图</small></button><button onClick={() => setExportOpen(true)}>✓<small>导出</small></button></nav>
-    {mobilePanel && <div className="mobile-sheet"><div className="sheet-grip"/>{mobilePanel === "tools" ? <div className="mobile-tools">{tools.map((t) => <button key={t.id} className={editor.tool === t.id ? "active" : ""} onClick={() => { editor.setTool(t.id); setMobilePanel(null); }}>{t.icon}<small>{t.label}</small></button>)}</div> : <div className="mobile-colors">{project.palette.map((c) => <button key={c.index} className={editor.color === c.index ? "selected" : ""} style={{ background: c.hex }} onClick={() => { editor.setColor(c.index); editor.setTool("pencil"); setMobilePanel(null); }}/>)}</div>}</div>}
+    <nav className="mobile-nav"><button onClick={() => setMobilePanel(mobilePanel === "project" ? null : "project")}>◇<small>工程</small></button><button onClick={() => setMobilePanel(mobilePanel === "tools" ? null : "tools")}>✦<small>工具</small></button><button onClick={() => setMobilePanel(mobilePanel === "colors" ? null : "colors")}>◉<small>色板</small></button><button onClick={() => setConvertOpen(true)}>▧<small>转图</small></button><button onClick={() => setExportOpen(true)}>✓<small>导出</small></button></nav>
+    {mobilePanel && <div className="mobile-sheet"><div className="sheet-grip"/>{mobilePanel === "tools" ? <div className="mobile-tools">{tools.map((t) => <button key={t.id} className={editor.tool === t.id ? "active" : ""} onClick={() => { editor.setTool(t.id); setMobilePanel(null); }}>{t.icon}<small>{t.label}</small></button>)}</div> : mobilePanel === "colors" ? <div className="mobile-colors">{project.palette.map((c) => <button key={c.index} className={editor.color === c.index ? "selected" : ""} style={{ background: c.hex }} onClick={() => { editor.setColor(c.index); editor.setTool("pencil"); setMobilePanel(null); }}/>)}</div> : <div className="mobile-project-actions"><button onClick={() => { setMobilePanel(null); setNewOpen(true); }}><span>＋</span>新建作品</button><button onClick={() => fileProject.current?.click()}><span>⇧</span>导入工程</button><button onClick={() => exportProject(project)}><span>◇</span>备份工程</button></div>}</div>}
 
     <input ref={fileProject} hidden type="file" accept=".pixelsnack" onChange={(e) => handleProject(e.target.files?.[0])}/>
     {notice && <div className="toast" role="status">{notice}</div>}
@@ -100,8 +108,9 @@ export default function PixelSnackApp() {
 
 type ExportModalProps = { project: ReturnType<typeof createProject>; total: number; grid: boolean; transparent: boolean; scale: number; setGrid: (v: boolean) => void; setTransparent: (v: boolean) => void; setScale: (v: number) => void; onClose: () => void };
 function ExportModal({ project, total, grid, transparent, scale, setGrid, setTransparent, setScale, onClose }: ExportModalProps) {
+  const safeMaxScale = Math.max(1, Math.min(32, Math.floor(4096 / Math.max(project.width, project.height)))); const exportScale = Math.min(scale, safeMaxScale);
   return <div className="modal-backdrop" role="presentation"><section className="modal export-modal" role="dialog" aria-modal="true"><header><div><span className="eyebrow">OUTPUT BAY / 03</span><h2>完成并导出</h2></div><button className="icon-button" onClick={onClose}>×</button></header><div className="export-cards">
-    <article><span className="export-glyph">▦</span><h3>PNG 成品图</h3><p>适合社交分享、继续编辑或制作预览。</p><label>单格像素 <b>{scale}px</b><input type="range" min="1" max="32" value={scale} onChange={(e) => setScale(+e.target.value)} /></label><label className="check"><input type="checkbox" checked={grid} onChange={(e) => setGrid(e.target.checked)}/>显示网格</label><label className="check"><input type="checkbox" checked={transparent} onChange={(e) => setTransparent(e.target.checked)}/>透明背景</label><button className="primary wide" onClick={() => exportPng(project, scale, grid, transparent)}>导出 PNG</button></article>
+    <article><span className="export-glyph">▦</span><h3>PNG 成品图</h3><p>适合社交分享、继续编辑或制作预览。大型作品会自动限制安全输出尺寸。</p><label>单格像素 <b>{exportScale}px</b><input type="range" min="1" max={safeMaxScale} value={exportScale} onChange={(e) => setScale(+e.target.value)} /></label><label className="check"><input type="checkbox" checked={grid} onChange={(e) => setGrid(e.target.checked)}/>显示网格</label><label className="check"><input type="checkbox" checked={transparent} onChange={(e) => setTransparent(e.target.checked)}/>透明背景</label><button className="primary wide" onClick={() => exportPng(project, exportScale, grid, transparent)}>导出 PNG</button></article>
     <article><span className="export-glyph">▤</span><h3>PDF 分板图纸</h3><p>A4 横向分页，包含色号、板块坐标、材料表与校准尺。</p><div className="pdf-facts"><span><small>页面</small><b>{Math.ceil(project.width / project.board.width) * Math.ceil(project.height / project.board.height)}</b></span><span><small>豆数</small><b>{total}</b></span></div><button className="primary wide" onClick={() => exportPdf(project)}>导出 PDF</button></article>
     <article><span className="export-glyph">⬡</span><h3>PixelSnack 工程</h3><p>包含色板快照、二进制画布和预览图，用于备份和迁移。</p><button className="ghost wide" onClick={() => exportProject(project)}>导出 .pixelsnack</button></article>
   </div></section></div>;

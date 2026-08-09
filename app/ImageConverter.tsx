@@ -46,8 +46,9 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
   const [width, setWidth] = useState(48); const [height, setHeight] = useState(48); const [maxColors, setMaxColors] = useState(18);
   const [dither, setDither] = useState(false); const [fitMode, setFitMode] = useState<FitMode>("cover"); const [zoom, setZoom] = useState(1); const [crop, setCrop] = useState<Crop>({ x: 0, y: 0 });
   const [resizeMode, setResizeMode] = useState<ResizeMode>("high"); const [outputMode, setOutputMode] = useState<OutputMode>("guide");
-  const [busy, setBusy] = useState(false); const [result, setResult] = useState<Uint16Array | null>(null); const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false); const [progress, setProgress] = useState(0); const [result, setResult] = useState<Uint16Array | null>(null); const [error, setError] = useState("");
   const sourceImage = useRef<HTMLImageElement | null>(null); const cropCanvas = useRef<HTMLCanvasElement>(null); const resultCanvas = useRef<HTMLCanvasElement>(null);
+  const worker = useRef<Worker | null>(null); const cancelTask = useRef<(() => void) | null>(null);
   const drag = useRef<{ px: number; py: number; crop: Crop } | null>(null); const fileInput = useRef<HTMLInputElement>(null);
 
   const previewSize = useMemo(() => {
@@ -63,6 +64,7 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
   }, [previewSize, fitMode, zoom, crop, resizeMode]);
 
   useEffect(() => { paintCrop(); }, [paintCrop, sourceVersion]);
+  useEffect(() => () => { cancelTask.current?.(); worker.current?.terminate(); }, []);
   useEffect(() => () => { if (sourceUrl) URL.revokeObjectURL(sourceUrl); }, [sourceUrl]);
   useEffect(() => {
     if (!result || !resultCanvas.current) return;
@@ -84,25 +86,44 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
   };
 
   const convert = async () => {
-    const img = sourceImage.current; if (!file || !img) return; setBusy(true); setResult(null); setError("");
+    const img = sourceImage.current; if (!file || !img) return; setBusy(true); setProgress(0); setResult(null); setError("");
     try {
       const c = document.createElement("canvas"); c.width = width; c.height = height; const ctx = c.getContext("2d")!;
       drawSource(ctx, img, width, height, fitMode, zoom, crop, resizeMode);
       const image = ctx.getImageData(0, 0, width, height);
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const cells = convertPixels({ pixels: image.data, width, height, palette: palette.map(({ index, rgb }) => ({ index, rgb })), dither, maxColors });
+      const input = { pixels: image.data, width, height, palette: palette.map(({ index, rgb }) => ({ index, rgb })), dither, maxColors };
+      let cells: Uint16Array;
+      if (typeof Worker === "undefined") cells = convertPixels(input);
+      else {
+        const transferPixels = image.data.slice();
+        try {
+          cells = await new Promise<Uint16Array>((resolve, reject) => {
+            const active = new Worker("/image-worker.js"); worker.current = active;
+            cancelTask.current = () => { active.terminate(); reject(new DOMException("转换已取消", "AbortError")); };
+            active.onmessage = (event) => { const message = event.data; if (message.type === "progress") setProgress(message.value); else if (message.type === "result") resolve(new Uint16Array(message.cells)); else if (message.type === "error") reject(new Error(message.message)); };
+            active.onerror = () => reject(new Error("转换线程加载失败"));
+            active.postMessage({ ...input, pixels: transferPixels }, [transferPixels.buffer]);
+          });
+        } catch (workerError) {
+          if (workerError instanceof DOMException && workerError.name === "AbortError") throw workerError;
+          cells = convertPixels(input);
+        }
+      }
       setResult(cells);
-    } catch (e) { setError(e instanceof Error ? e.message : "图片转换失败"); } finally { setBusy(false); }
+      setProgress(100);
+    } catch (e) { if (!(e instanceof DOMException && e.name === "AbortError")) setError(e instanceof Error ? e.message : "图片转换失败"); } finally { worker.current?.terminate(); worker.current = null; cancelTask.current = null; setBusy(false); }
   };
 
   const confirm = () => { if (!result) return; const p = createProject(width, height, file?.name.replace(/\.[^.]+$/, "") || "图片拼豆"); if (outputMode === "guide") p.guideCells = result.slice(); else p.cells = result.slice(); p.palette = palette.map((c) => ({ ...c })); replace(p); onClose(); };
   const pointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => { if (fitMode !== "cover") return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { px: e.clientX, py: e.clientY, crop }; };
   const pointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => { if (!drag.current) return; const rect = e.currentTarget.getBoundingClientRect(); setCrop({ x: Math.max(-1, Math.min(1, drag.current.crop.x - (e.clientX - drag.current.px) / rect.width * 2)), y: Math.max(-1, Math.min(1, drag.current.crop.y - (e.clientY - drag.current.py) / rect.height * 2)) }); };
   const pointerUp = () => { drag.current = null; };
+  const close = () => { cancelTask.current?.(); onClose(); };
 
   return <div className="modal-backdrop soft-backdrop" role="presentation">
     <section className="modal converter crop-modal" role="dialog" aria-modal="true" aria-labelledby="convert-title">
-      <header><div><span className="eyebrow">IMAGE TO BEADS</span><h2 id="convert-title">图片转拼豆</h2><p>上传喜欢的图片，裁出最合适的画面，再映射到拼豆色板。</p></div><button className="icon-button" onClick={onClose} aria-label="关闭">×</button></header>
+      <header><div><span className="eyebrow">IMAGE TO BEADS</span><h2 id="convert-title">图片转拼豆</h2><p>上传喜欢的图片，裁出最合适的画面，再映射到拼豆色板。</p></div><button className="icon-button" onClick={close} aria-label="关闭">×</button></header>
       <div className="crop-layout">
         <div className="crop-stage">
           {!sourceUrl ? <button className="image-dropzone" onClick={() => fileInput.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); chooseFile(e.dataTransfer.files[0]); }}>
@@ -127,10 +148,11 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
           <div className="setting-title"><span>04</span><div><b>创建方式</b><small>先体验拼豆，或直接获得像素图</small></div></div>
           <div className="soft-segment output-segment"><button className={outputMode === "guide" ? "active" : ""} onClick={() => setOutputMode("guide")}><b>互动描摹</b><small>浅色底图，自己填豆</small></button><button className={outputMode === "filled" ? "active" : ""} onClick={() => setOutputMode("filled")}><b>直接生成</b><small>获得完整像素图</small></button></div>
           {error && <p className="form-error">{error}</p>}
-          <button className="primary wide convert-action" disabled={!file || busy} onClick={convert}>{busy ? "正在生成拼豆预览…" : result ? "重新生成预览" : "生成拼豆预览"}</button>
+          {busy && <div className="conversion-progress" aria-live="polite"><span><b>正在生成拼豆预览</b><em>{progress}%</em></span><i><b style={{ width: `${progress}%` }}/></i></div>}
+          <div className="conversion-actions"><button className="primary wide convert-action" disabled={!file || busy} onClick={convert}>{result ? "重新生成预览" : "生成拼豆预览"}</button>{busy && <button className="ghost cancel-conversion" onClick={() => cancelTask.current?.()}>取消转换</button>}</div>
         </div>
       </div>
-      <footer><span>{outputMode === "guide" ? "参考图会淡化显示在可编辑画布底部" : "你的原作品不会被覆盖"}</span><div><button className="ghost" onClick={onClose}>取消</button><button className="primary" disabled={!result} onClick={confirm}>{outputMode === "guide" ? "开始拼豆" : "创建像素图"}</button></div></footer>
+      <footer><span>{outputMode === "guide" ? "参考图会淡化显示在可编辑画布底部" : "你的原作品不会被覆盖"}</span><div><button className="ghost" onClick={close}>取消</button><button className="primary" disabled={!result} onClick={confirm}>{outputMode === "guide" ? "开始拼豆" : "创建像素图"}</button></div></footer>
     </section>
   </div>;
 }

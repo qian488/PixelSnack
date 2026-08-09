@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createProject, fillGuideRegion, floodFill, lineCells, parsePalette } from "../app/editor-core";
+import { createProject, fillGuideRegion, floodFill, lineCells, parsePalette, validateProject } from "../app/editor-core";
 
 describe("grid algorithms", () => {
   it("interpolates every cell in a fast diagonal stroke", () => {
@@ -26,6 +26,11 @@ describe("grid algorithms", () => {
     const changes = fillGuideRegion(project, 0, 4);
     expect(changes.map((change) => change.index).sort((a, b) => a - b)).toEqual([0, 1, 3]);
     expect(changes.every((change) => change.before === 0 && change.after === 4)).toBe(true);
+  });
+
+  it("rejects project cells that reference a missing palette color", () => {
+    const project = createProject(2, 2, "invalid"); project.cells[0] = 999;
+    expect(() => validateProject(project)).toThrow(/不存在的色板索引/);
   });
 });
 
