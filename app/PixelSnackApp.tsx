@@ -44,7 +44,7 @@ export default function PixelSnackApp() {
   return <main className="app-shell">
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
     <header className="topbar">
-      <div className="brand-block"><button className="back-button" aria-label="返回作品列表">‹</button><div className="brand-mark">PS</div><div><div className="brand-name">PIXEL<span>SNACK</span></div><small>CYBER BEAD STUDIO</small></div></div>
+      <div className="brand-block"><button className="back-button" aria-label="返回作品列表">‹</button><div className="brand-mark" role="img" aria-label="PixelSnack 品牌标志"/><div><div className="brand-name">PIXEL<span>SNACK</span></div><small>CYBER BEAD STUDIO</small></div></div>
       <div className="project-title"><span>PROJECT /</span><input aria-label="作品名称" value={project.name} onChange={(e) => editor.rename(e.target.value)} /><i className={saved ? "saved" : "saving"}>{saved ? "● 已保存" : "○ 保存中"}</i></div>
       <div className="top-actions">
         <button className="top-icon danger" onClick={() => { if (confirm("清空当前画布？此操作可以撤销。")) editor.clear(); }} aria-label="清空画布">⌫</button>
