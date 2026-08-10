@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createProject } from "./editor-core";
+import { createProject, DEFAULT_CREATION_SIZE, MAX_CREATION_SIZE, MIN_CREATION_SIZE } from "./editor-core";
 import { useEditor } from "./editor-store";
 import { convertPixels } from "./image-convert-core";
+import { CanvasSizePresets } from "./CanvasSizePresets";
 
 type Crop = { x: number; y: number };
 type FitMode = "cover" | "contain";
@@ -43,7 +44,7 @@ function drawSource(ctx: CanvasRenderingContext2D, img: HTMLImageElement, width:
 export function ImageConverter({ open, onClose }: { open: boolean; onClose: () => void }) {
   const palette = useEditor((s) => s.project.palette); const replace = useEditor((s) => s.replaceProject);
   const [file, setFile] = useState<File | null>(null); const [sourceUrl, setSourceUrl] = useState(""); const [sourceVersion, setSourceVersion] = useState(0); const [sourceSize, setSourceSize] = useState({ width: 0, height: 0 });
-  const [width, setWidth] = useState(48); const [height, setHeight] = useState(48); const [maxColors, setMaxColors] = useState(18);
+  const [width, setWidth] = useState(DEFAULT_CREATION_SIZE); const [height, setHeight] = useState(DEFAULT_CREATION_SIZE); const [maxColors, setMaxColors] = useState(18);
   const [dither, setDither] = useState(false); const [fitMode, setFitMode] = useState<FitMode>("cover"); const [zoom, setZoom] = useState(1); const [crop, setCrop] = useState<Crop>({ x: 0, y: 0 });
   const [resizeMode, setResizeMode] = useState<ResizeMode>("high"); const [outputMode, setOutputMode] = useState<OutputMode>("guide");
   const [busy, setBusy] = useState(false); const [progress, setProgress] = useState(0); const [result, setResult] = useState<Uint16Array | null>(null); const [error, setError] = useState("");
@@ -137,7 +138,8 @@ export function ImageConverter({ open, onClose }: { open: boolean; onClose: () =
         </div>
         <div className="crop-settings">
           <div className="setting-title"><span>01</span><div><b>画布尺寸</b><small>最多支持 256 × 256</small></div></div>
-          <div className="form-row"><label>宽度<input type="number" min="8" max="256" value={width} onChange={(e) => { setWidth(Math.max(8, Math.min(256, +e.target.value))); setResult(null); }} /></label><label>高度<input type="number" min="8" max="256" value={height} onChange={(e) => { setHeight(Math.max(8, Math.min(256, +e.target.value))); setResult(null); }} /></label></div>
+          <CanvasSizePresets width={width} height={height} onSelect={(size) => { setWidth(size); setHeight(size); setResult(null); }} />
+          <div className="form-row"><label>宽度<input type="number" min={MIN_CREATION_SIZE} max={MAX_CREATION_SIZE} value={width} onChange={(e) => { setWidth(Math.max(MIN_CREATION_SIZE, Math.min(MAX_CREATION_SIZE, +e.target.value))); setResult(null); }} /></label><label>高度<input type="number" min={MIN_CREATION_SIZE} max={MAX_CREATION_SIZE} value={height} onChange={(e) => { setHeight(Math.max(MIN_CREATION_SIZE, Math.min(MAX_CREATION_SIZE, +e.target.value))); setResult(null); }} /></label></div>
           <div className="setting-title"><span>02</span><div><b>裁切方式</b><small>裁切模式支持拖动和缩放</small></div></div>
           <div className="soft-segment"><button className={fitMode === "cover" ? "active" : ""} onClick={() => { setFitMode("cover"); setResult(null); }}>裁切填满</button><button className={fitMode === "contain" ? "active" : ""} onClick={() => { setFitMode("contain"); setResult(null); }}>完整保留</button></div>
           <label className={fitMode === "contain" ? "range-label disabled" : "range-label"}><span>图片缩放 <b>{zoom.toFixed(1)}×</b></span><input disabled={fitMode === "contain"} type="range" min="1" max="4" step="0.1" value={zoom} onChange={(e) => { setZoom(+e.target.value); setResult(null); }}/></label>

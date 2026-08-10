@@ -23,15 +23,29 @@ export async function loadLatest() {
   return row ? restored(row) : null;
 }
 
-function renderProject(project: PixelProject, scale = 12, grid = false, transparent = false) {
-  const canvas = document.createElement("canvas"); canvas.width = project.width * scale; canvas.height = project.height * scale;
-  const ctx = canvas.getContext("2d")!;
-  if (!transparent) { ctx.fillStyle = "#f7f4eb"; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-  const byIndex = new Map(project.palette.map((c) => [c.index, c]));
-  project.cells.forEach((v, i) => {
-    if (!v) return; const x = i % project.width, y = Math.floor(i / project.width);
-    ctx.fillStyle = byIndex.get(v)?.hex || "#ff00ff"; ctx.fillRect(x * scale, y * scale, scale, scale);
+export function createProjectRaster(project: PixelProject, scale = 1, transparent = false) {
+  const width = project.width * scale, height = project.height * scale;
+  const data = new Uint8ClampedArray(width * height * 4);
+  if (!transparent) for (let offset = 0; offset < data.length; offset += 4) {
+    data[offset] = 247; data[offset + 1] = 244; data[offset + 2] = 235; data[offset + 3] = 255;
+  }
+  const byIndex = new Map(project.palette.map((color) => [color.index, color.rgb]));
+  project.cells.forEach((value, index) => {
+    if (!value) return;
+    const [r, g, b] = byIndex.get(value) || [255, 0, 255];
+    const sourceX = index % project.width, sourceY = Math.floor(index / project.width);
+    for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) {
+      const offset = ((sourceY * scale + dy) * width + sourceX * scale + dx) * 4;
+      data[offset] = r; data[offset + 1] = g; data[offset + 2] = b; data[offset + 3] = 255;
+    }
   });
+  return { width, height, data };
+}
+
+function renderProject(project: PixelProject, scale = 12, grid = false, transparent = false) {
+  const raster = createProjectRaster(project, scale, transparent);
+  const canvas = document.createElement("canvas"); canvas.width = raster.width; canvas.height = raster.height;
+  const ctx = canvas.getContext("2d")!; const image = ctx.createImageData(raster.width, raster.height); image.data.set(raster.data); ctx.putImageData(image, 0, 0);
   if (grid && scale >= 4) {
     ctx.strokeStyle = "rgba(15,18,24,.24)"; ctx.lineWidth = 1;
     for (let x = 0; x <= project.width; x++) { ctx.beginPath(); ctx.moveTo(x * scale + .5, 0); ctx.lineTo(x * scale + .5, canvas.height); ctx.stroke(); }
@@ -51,20 +65,26 @@ export async function exportPng(project: PixelProject, scale = 12, grid = false,
 }
 
 export async function exportProject(project: PixelProject) {
-  const { default: JSZip } = await import("jszip");
-  const zip = new JSZip();
+  const preview = await new Promise<Blob>((resolve) => renderProject(project, 4).toBlob((blob) => resolve(blob!), "image/png"));
+  const bytes = await createProjectArchive(project, new Uint8Array(await preview.arrayBuffer()));
+  download(new Blob([bytes.buffer as ArrayBuffer]), `${safeName(project.name)}.pixelsnack`);
+}
+
+export async function createProjectArchive(project: PixelProject, previewPng?: Uint8Array) {
+  const { default: JSZip } = await import("jszip"); const zip = new JSZip();
   const manifest = { schemaVersion: project.schemaVersion, id: project.id, name: project.name, width: project.width, height: project.height, palette: project.palette, board: project.board, createdAt: project.createdAt, updatedAt: project.updatedAt, hasGuide: Boolean(project.guideCells) };
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
   zip.file("cells.bin", project.cells.slice().buffer);
   if (project.guideCells) zip.file("guide.bin", project.guideCells.slice().buffer);
-  const preview = await new Promise<Blob>((resolve) => renderProject(project, 4).toBlob((b) => resolve(b!), "image/png"));
-  zip.file("preview.png", preview);
-  download(await zip.generateAsync({ type: "blob" }), `${safeName(project.name)}.pixelsnack`);
+  if (previewPng) zip.file("preview.png", previewPng);
+  return zip.generateAsync({ type: "uint8array" });
 }
 
-export async function importProject(file: File): Promise<PixelProject> {
+export async function importProject(file: File): Promise<PixelProject> { return importProjectArchive(file); }
+
+export async function importProjectArchive(source: Blob | ArrayBuffer | Uint8Array): Promise<PixelProject> {
   const { default: JSZip } = await import("jszip");
-  const zip = await JSZip.loadAsync(file); const manifestFile = zip.file("manifest.json"), cellsFile = zip.file("cells.bin");
+  const zip = await JSZip.loadAsync(source); const manifestFile = zip.file("manifest.json"), cellsFile = zip.file("cells.bin");
   if (!manifestFile || !cellsFile) throw new Error("工程包缺少 manifest.json 或 cells.bin");
   const manifest = JSON.parse(await manifestFile.async("string"));
   if (manifest.schemaVersion !== 1 || manifest.width < 1 || manifest.height < 1 || manifest.width > 256 || manifest.height > 256) throw new Error("不支持的工程版本或尺寸");

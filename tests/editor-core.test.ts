@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createProject, fillGuideRegion, floodFill, lineCells, parsePalette, validateProject } from "../app/editor-core";
+import { CANVAS_SIZE_PRESETS, DEFAULT_CREATION_SIZE, createProject, fillGuideRegion, floodFill, lineCells, parsePalette, validateProject } from "../app/editor-core";
 
 describe("grid algorithms", () => {
+  it("offers the shared 24x24 creation default and common square presets", () => {
+    expect(DEFAULT_CREATION_SIZE).toBe(24);
+    expect(CANVAS_SIZE_PRESETS).toEqual([16, 24, 29, 32, 48, 58]);
+  });
   it("interpolates every cell in a fast diagonal stroke", () => {
     expect(lineCells(0, 0, 5, 3)).toEqual([[0,0],[1,1],[2,1],[3,2],[4,2],[5,3]]);
   });

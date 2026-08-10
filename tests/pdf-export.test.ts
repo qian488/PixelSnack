@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
-import { createDemoProject } from "../app/editor-core";
-import { createPdfBytes, expectedPdfPageCount, millimetersToPoints } from "../app/pdf-export";
+import { createDemoProject, createProject } from "../app/editor-core";
+import { createPdfBytes, expectedPdfPageCount, millimetersToPoints, recommendedPdfLayout } from "../app/pdf-export";
 
 describe("PDF pattern export", () => {
   it("creates an overview followed by one page per physical board", async () => {
@@ -32,11 +32,28 @@ describe("PDF pattern export", () => {
     const project = createDemoProject();
     project.cells.fill(0);
     project.palette.forEach((color, index) => { project.cells[index] = color.index; });
+    project.palette.push({ ...project.palette[0], index: 25, code: "D025", name: "Extra black" });
+    project.cells[24] = 25;
 
     expect(expectedPdfPageCount(project, "progress")).toBe(6);
     const bytes = await createPdfBytes(project, { contentMode: "progress" });
     const pdf = await PDFDocument.load(bytes);
     expect(pdf.getPageCount()).toBe(6);
+  });
+
+  it("defaults a one-board project to a single overview page", async () => {
+    const project = createProject(24, 24, "ONE BOARD"); project.cells[0] = 1;
+    expect(recommendedPdfLayout(project)).toBe("overview");
+    expect(expectedPdfPageCount(project)).toBe(1);
+    const pdf = await PDFDocument.load(await createPdfBytes(project));
+    expect(pdf.getPageCount()).toBe(1);
+  });
+
+  it("lets a simple project explicitly request the construction page", async () => {
+    const project = createProject(24, 24, "ONE BOARD"); project.cells[0] = 1;
+    expect(expectedPdfPageCount(project, "progress", "construction")).toBe(2);
+    const pdf = await PDFDocument.load(await createPdfBytes(project, { layoutMode: "construction" }));
+    expect(pdf.getPageCount()).toBe(2);
   });
 
   it("converts the print calibration rule to real PDF points", () => {

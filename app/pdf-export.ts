@@ -2,9 +2,11 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import type { PaletteColor, PixelProject } from "./editor-core";
 
 export type PdfContentMode = "reference" | "progress" | "overlay";
+export type PdfLayoutMode = "overview" | "construction";
 
 export type PdfExportOptions = {
   contentMode?: PdfContentMode;
+  layoutMode?: PdfLayoutMode;
   titlePng?: Uint8Array;
 };
 
@@ -42,6 +44,10 @@ function safePdfText(value: string) {
 function getPatternCells(project: PixelProject, mode: PdfContentMode) {
   if (mode === "progress") return project.cells;
   return project.guideCells ?? project.cells;
+}
+
+export function recommendedPdfLayout(project: PixelProject): PdfLayoutMode {
+  return project.width <= project.board.width && project.height <= project.board.height ? "overview" : "construction";
 }
 
 function countCells(cells: Uint16Array) {
@@ -129,9 +135,9 @@ function drawOverviewSidebar(page: PDFPage, fonts: Fonts, project: PixelProject,
 
   page.drawText("MATERIALS", { x, y: 390, size: 9, font: fonts.bold, color: COLORS.ink });
   page.drawText(`${materials.length} colors`, { x: x + 178, y: 390, size: 7, font: fonts.regular, color: COLORS.muted });
-  const visible = materials.slice(0, 20);
-  visible.forEach((item, index) => drawMaterialItem(page, fonts, item, x + (index % 2) * 119, 365 - Math.floor(index / 2) * 29));
-  if (materials.length > visible.length) page.drawText(`+ ${materials.length - visible.length} more colors in materials appendix`, { x, y: 65, size: 7, font: fonts.regular, color: COLORS.purple });
+  const visible = materials.slice(0, 24);
+  visible.forEach((item, index) => drawMaterialItem(page, fonts, item, x + (index % 2) * 119, 365 - Math.floor(index / 2) * 24));
+  if (materials.length > visible.length) page.drawText(`+ ${materials.length - visible.length} more colors - use construction PDF for the full list`, { x, y: 65, size: 7, font: fonts.regular, color: COLORS.purple });
 }
 
 function boardLabel(px: number, py: number) { return `${String.fromCharCode(65 + (px % 26))}${py + 1}`; }
@@ -202,13 +208,14 @@ function drawMaterialsAppendix(page: PDFPage, fonts: Fonts, materials: Material[
 
 export async function createPdfBytes(project: PixelProject, options: PdfExportOptions = {}) {
   const mode = options.contentMode ?? (project.guideCells ? "reference" : "progress");
+  const layout = options.layoutMode ?? recommendedPdfLayout(project);
   const targetCells = getPatternCells(project, mode);
   const colors = new Map(project.palette.map((color) => [color.index, color]));
   const materials = buildMaterials(project, targetCells);
   const materialByIndex = new Map(materials.map((material) => [material.color.index, material]));
   const pagesX = Math.ceil(project.width / project.board.width), pagesY = Math.ceil(project.height / project.board.height);
-  const appendixPages = materials.length > 20 ? Math.ceil(materials.length / 48) : 0;
-  const pageCount = 1 + pagesX * pagesY + appendixPages;
+  const appendixPages = layout === "construction" && materials.length > 24 ? Math.ceil(materials.length / 48) : 0;
+  const pageCount = layout === "overview" ? 1 : 1 + pagesX * pagesY + appendixPages;
   const doc = await PDFDocument.create();
   const fonts = { regular: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold) };
   doc.setTitle(project.name); doc.setAuthor("PixelSnack"); doc.setSubject("Pixel bead assembly pattern"); doc.setCreator("PixelSnack");
@@ -220,13 +227,13 @@ export async function createPdfBytes(project: PixelProject, options: PdfExportOp
   drawOverviewGrid(overview, project, targetCells, mode, colors);
   drawOverviewSidebar(overview, fonts, project, materials, targetCells);
 
-  for (let py = 0; py < pagesY; py++) for (let px = 0; px < pagesX; px++) {
+  if (layout === "construction") for (let py = 0; py < pagesY; py++) for (let px = 0; px < pagesX; px++) {
     const page = doc.addPage(A4_LANDSCAPE);
     drawPageChrome(page, fonts, pageNumber++, pageCount);
     await drawProjectTitle(page, doc, fonts, project, options.titlePng, `BOARD ${boardLabel(px, py)} / ${pagesX * pagesY}`);
     drawBoardPage(page, fonts, project, targetCells, mode, colors, materialByIndex, px, py);
   }
-  for (let start = 0; start < materials.length && materials.length > 20; start += 48) {
+  for (let start = 0; start < materials.length && layout === "construction" && materials.length > 24; start += 48) {
     const page = doc.addPage(A4_LANDSCAPE);
     drawPageChrome(page, fonts, pageNumber++, pageCount);
     await drawProjectTitle(page, doc, fonts, project, options.titlePng, "MATERIALS");
@@ -235,9 +242,10 @@ export async function createPdfBytes(project: PixelProject, options: PdfExportOp
   return doc.save();
 }
 
-export function expectedPdfPageCount(project: PixelProject, mode: PdfContentMode = project.guideCells ? "reference" : "progress") {
+export function expectedPdfPageCount(project: PixelProject, mode: PdfContentMode = project.guideCells ? "reference" : "progress", layout: PdfLayoutMode = recommendedPdfLayout(project)) {
   const materialCount = buildMaterials(project, getPatternCells(project, mode)).length;
-  return 1 + Math.ceil(project.width / project.board.width) * Math.ceil(project.height / project.board.height) + (materialCount > 20 ? Math.ceil(materialCount / 48) : 0);
+  if (layout === "overview") return 1;
+  return 1 + Math.ceil(project.width / project.board.width) * Math.ceil(project.height / project.board.height) + (materialCount > 24 ? Math.ceil(materialCount / 48) : 0);
 }
 
 function luminance([r, g, b]: [number, number, number]) { return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; }

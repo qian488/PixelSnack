@@ -27,6 +27,11 @@ export type PixelProject = {
 
 export type CellChange = { index: number; before: number; after: number };
 
+export const CANVAS_SIZE_PRESETS = [16, 24, 29, 32, 48, 58] as const;
+export const DEFAULT_CREATION_SIZE = 24;
+export const MIN_CREATION_SIZE = 8;
+export const MAX_CREATION_SIZE = 256;
+
 const swatches = [
   ["D001", "Ink", "#15171c"], ["D002", "Snow", "#f6f2e8"],
   ["D003", "Neon cyan", "#6ee7ef"], ["D004", "Aqua", "#2ab7b2"],
