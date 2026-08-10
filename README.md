@@ -12,7 +12,7 @@ PixelSnack 是一款本地优先的拼豆绘图与图片转拼豆 Web/PWA。它�
 - 图片裁切、三种缩放方式、OKLab 色板匹配和 Floyd–Steinberg 抖动
 - 浅色参考底图互动描摹，或直接生成完整像素图
 - IndexedDB 自动保存和 `.pixelsnack` 工程导入/导出
-- PNG 成品图及 PDF 分板图纸
+- PNG 成品图；PDF 提供作品总览、材料统计、全局坐标、逐板施工图和 100 mm 打印校准尺
 - 离线 PWA
 
 ## 技术栈
@@ -51,6 +51,7 @@ app/
   image-convert-core.ts OKLab 匹配和抖动算法
   editor-core.ts        项目模型与网格算法
   editor-store.ts       编辑状态与撤销重做
+  pdf-export.ts         PDF 总览、分板和材料图纸生成
   project-io.ts         本地存储和导出
 public/
   image-worker.js       同源图片转换线程

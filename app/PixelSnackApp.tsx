@@ -5,6 +5,7 @@ import { useEditor } from "./editor-store";
 import { MiniMap, PixelCanvas } from "./PixelCanvas";
 import { ImageConverter } from "./ImageConverter";
 import { exportPdf, exportPng, exportProject, importProject, loadLatest, saveLocal } from "./project-io";
+import { expectedPdfPageCount, type PdfContentMode } from "./pdf-export";
 
 const tools = [
   { id: "pencil", icon: "✦", label: "画笔", key: "B" }, { id: "eraser", icon: "◇", label: "橡皮", key: "E" },
@@ -109,9 +110,11 @@ export default function PixelSnackApp() {
 type ExportModalProps = { project: ReturnType<typeof createProject>; total: number; grid: boolean; transparent: boolean; scale: number; setGrid: (v: boolean) => void; setTransparent: (v: boolean) => void; setScale: (v: number) => void; onClose: () => void };
 function ExportModal({ project, total, grid, transparent, scale, setGrid, setTransparent, setScale, onClose }: ExportModalProps) {
   const safeMaxScale = Math.max(1, Math.min(32, Math.floor(4096 / Math.max(project.width, project.height)))); const exportScale = Math.min(scale, safeMaxScale);
+  const [pdfMode, setPdfMode] = useState<PdfContentMode>(project.guideCells ? "reference" : "progress");
+  const pdfPages = expectedPdfPageCount(project, pdfMode);
   return <div className="modal-backdrop" role="presentation"><section className="modal export-modal" role="dialog" aria-modal="true"><header><div><span className="eyebrow">OUTPUT BAY / 03</span><h2>完成并导出</h2></div><button className="icon-button" onClick={onClose}>×</button></header><div className="export-cards">
     <article><span className="export-glyph">▦</span><h3>PNG 成品图</h3><p>适合社交分享、继续编辑或制作预览。大型作品会自动限制安全输出尺寸。</p><label>单格像素 <b>{exportScale}px</b><input type="range" min="1" max={safeMaxScale} value={exportScale} onChange={(e) => setScale(+e.target.value)} /></label><label className="check"><input type="checkbox" checked={grid} onChange={(e) => setGrid(e.target.checked)}/>显示网格</label><label className="check"><input type="checkbox" checked={transparent} onChange={(e) => setTransparent(e.target.checked)}/>透明背景</label><button className="primary wide" onClick={() => exportPng(project, exportScale, grid, transparent)}>导出 PNG</button></article>
-    <article><span className="export-glyph">▤</span><h3>PDF 分板图纸</h3><p>A4 横向分页，包含色号、板块坐标、材料表与校准尺。</p><div className="pdf-facts"><span><small>页面</small><b>{Math.ceil(project.width / project.board.width) * Math.ceil(project.height / project.board.height)}</b></span><span><small>豆数</small><b>{total}</b></span></div><button className="primary wide" onClick={() => exportPdf(project)}>导出 PDF</button></article>
+    <article><span className="export-glyph">▤</span><h3>PDF 拼豆图纸</h3><p>总览页搭配逐板施工页，包含全局坐标、稳定符号、完整色号、材料表与准确校准尺。</p>{project.guideCells && <label className="pdf-mode">图纸内容<select value={pdfMode} onChange={(e) => setPdfMode(e.target.value as PdfContentMode)}><option value="reference">完整参考图</option><option value="overlay">参考图 + 完成进度</option><option value="progress">仅已填豆子</option></select></label>}<div className="pdf-facts"><span><small>页面</small><b>{pdfPages}</b></span><span><small>{pdfMode === "progress" ? "已填豆数" : "目标豆数"}</small><b>{pdfMode === "progress" || !project.guideCells ? total : project.guideCells.reduce((sum, value) => sum + (value ? 1 : 0), 0)}</b></span></div><button className="primary wide" onClick={() => exportPdf(project, { contentMode: pdfMode })}>导出 PDF</button></article>
     <article><span className="export-glyph">⬡</span><h3>PixelSnack 工程</h3><p>包含色板快照、二进制画布和预览图，用于备份和迁移。</p><button className="ghost wide" onClick={() => exportProject(project)}>导出 .pixelsnack</button></article>
   </div></section></div>;
 }

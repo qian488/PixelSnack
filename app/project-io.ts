@@ -1,6 +1,7 @@
 "use client";
 import Dexie, { type EntityTable } from "dexie";
 import { PixelProject, validateProject } from "./editor-core";
+import { createPdfBytes, type PdfExportOptions } from "./pdf-export";
 
 type StoredProject = Omit<PixelProject, "cells" | "guideCells"> & { cells: ArrayBuffer; guideCells?: ArrayBuffer };
 const db = new Dexie("pixelsnack") as Dexie & { projects: EntityTable<StoredProject, "id"> };
@@ -77,31 +78,19 @@ export async function importProject(file: File): Promise<PixelProject> {
   return validateProject({ ...projectManifest, cells: new Uint16Array(data), guideCells: guideData ? new Uint16Array(guideData) : undefined, id: crypto.randomUUID(), updatedAt: new Date().toISOString() });
 }
 
-export async function exportPdf(project: PixelProject) {
-  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
-  const doc = await PDFDocument.create(); const font = await doc.embedFont(StandardFonts.Helvetica); const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const pageW = 841.89, pageH = 595.28, margin = 34; const boardW = project.board.width, boardH = project.board.height;
-  const colors = new Map(project.palette.map((c) => [c.index, c]));
-  const pagesX = Math.ceil(project.width / boardW), pagesY = Math.ceil(project.height / boardH);
-  for (let py = 0; py < pagesY; py++) for (let px = 0; px < pagesX; px++) {
-    const page = doc.addPage([pageW, pageH]);
-    page.drawText(`${project.name}  /  BOARD ${px + 1}.${py + 1}`, { x: margin, y: pageH - 28, size: 12, font: bold, color: rgb(.06, .1, .14) });
-    const cols = Math.min(boardW, project.width - px * boardW), rows = Math.min(boardH, project.height - py * boardH);
-    const cell = Math.min((pageW - margin * 2 - 180) / cols, (pageH - margin * 2 - 28) / rows);
-    const ox = margin, oy = pageH - 52 - rows * cell;
-    const used = new Map<number, number>();
-    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-      const value = project.cells[(py * boardH + y) * project.width + px * boardW + x]; const c = colors.get(value);
-      if (c) { page.drawRectangle({ x: ox + x * cell, y: oy + (rows - 1 - y) * cell, width: cell, height: cell, color: rgb(c.rgb[0] / 255, c.rgb[1] / 255, c.rgb[2] / 255) }); used.set(value, (used.get(value) || 0) + 1); }
-      page.drawRectangle({ x: ox + x * cell, y: oy + (rows - 1 - y) * cell, width: cell, height: cell, borderColor: rgb(.35, .38, .42), borderWidth: .35 });
-      if (c && cell >= 11) page.drawText(c.code.replace(/\D/g, "").slice(-2), { x: ox + x * cell + 2, y: oy + (rows - 1 - y) * cell + cell / 2 - 2.5, size: Math.min(6, cell * .35), font, color: luminance(c.rgb) > .55 ? rgb(.08, .08, .1) : rgb(1, 1, 1) });
-    }
-    let ly = pageH - 58; page.drawText("MATERIALS", { x: pageW - 160, y: ly, size: 10, font: bold }); ly -= 18;
-    [...used].forEach(([i, count]) => { const c = colors.get(i)!; page.drawRectangle({ x: pageW - 160, y: ly - 2, width: 9, height: 9, color: rgb(...c.rgb.map((v) => v / 255) as [number, number, number]) }); page.drawText(`${c.code}  x ${count}`, { x: pageW - 145, y: ly, size: 8, font }); ly -= 14; });
-    page.drawLine({ start: { x: pageW - 160, y: 36 }, end: { x: pageW - 60, y: 36 }, thickness: 1 }); page.drawText("100 mm calibration", { x: pageW - 160, y: 24, size: 7, font });
-  }
-  download(new Blob([await doc.save()], { type: "application/pdf" }), `${safeName(project.name)}-pattern.pdf`);
+export async function exportPdf(project: PixelProject, options: PdfExportOptions = {}) {
+  const titlePng = await renderPdfTitle(project.name);
+  const bytes = await createPdfBytes(project, { ...options, titlePng });
+  download(new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" }), `${safeName(project.name)}-pattern.pdf`);
 }
 
-function luminance([r, g, b]: [number, number, number]) { return (.2126 * r + .7152 * g + .0722 * b) / 255; }
+async function renderPdfTitle(title: string) {
+  const canvas = document.createElement("canvas"); canvas.width = 1400; canvas.height = 100;
+  const ctx = canvas.getContext("2d")!; ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#33415c"; ctx.font = '700 54px Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif'; ctx.textBaseline = "middle";
+  ctx.fillText(title || "PixelSnack Pattern", 0, canvas.height / 2, canvas.width - 8);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : undefined;
+}
+
 function safeName(name: string) { return name.trim().replace(/[\\/:*?"<>|]+/g, "-") || "pixelsnack"; }
