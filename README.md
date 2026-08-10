@@ -2,7 +2,7 @@
 
 PixelSnack 是一款本地优先的拼豆绘图与图片转拼豆 Web/PWA。它面向桌面、平板和手机，作品与上传图片默认只在用户设备中处理。
 
-在线体验：<https://pixelsnack-studio.qianhuangsheng00.chatgpt.site>
+在线体验：<https://pixelsnack.qianhuangsheng00.workers.dev>
 
 ## 功能
 
